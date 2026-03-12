@@ -1,11 +1,35 @@
-Flask==2.3.0
-flask-cors==4.0.0
-flask-socketio==5.3.6
-eventlet==0.33.3
-openpyxl==3.1.2
-xlsxwriter==3.1.0
-Werkzeug==2.3.0
-pywebview==4.4.1
-apscheduler==3.10.4
-python-docx
-xlrd==2.0.2
+# ============================================================
+# requirements.txt — Python dependencies for the Event Management System
+# Install everything at once with:  pip install -r requirements.txt
+# ============================================================
+
+# ── WEB FRAMEWORK ────────────────────────────────────────────
+Flask==2.3.0           # the web framework that powers the backend API — handles routing, requests, responses
+flask-cors==4.0.0      # allows the browser frontend (index.html) to call the Flask API without CORS errors
+flask-socketio==5.3.6  # adds WebSocket support for real-time updates — imported but not actively used in v1.1
+eventlet==0.33.3       # async networking library required by flask-socketio to run correctly
+
+# ── EXCEL & FILE HANDLING ────────────────────────────────────
+openpyxl==3.1.2        # reads and writes .xlsx files — used in import_excel.py and for previewing Excel files in app.py
+xlsxwriter==3.1.0      # creates formatted .xlsx Excel reports — used in reports.py (more styling options than openpyxl)
+xlrd==2.0.2            # reads old-format .xls files (Excel 97-2003) — used in app.py's _xls_to_html() preview function
+python-docx            # reads .docx Word files — used in app.py's _docx_to_html() preview function (no version pin — latest)
+
+# ── DESKTOP APP ──────────────────────────────────────────────
+pywebview==4.4.1       # creates a native desktop window that renders the web UI — called in main.py
+                       # without this the app would only run in a browser, not as a standalone window
+Werkzeug==2.3.0        # utility library used internally by Flask — also provides secure_filename() used in app.py
+
+# ── SCHEDULER ────────────────────────────────────────────────
+apscheduler==3.10.4    # background job scheduler — runs the daily overdue check and weekly report email
+                       # configured in email_notifications.py → start_scheduler()
+
+# ── NOT LISTED BUT USED (built into Python — no install needed) ──
+# sqlite3      — database engine
+# smtplib      — email sending
+# os, sys      — file paths and system operations
+# datetime     — all date/time logic
+# base64       — encodes files for browser preview
+# mimetypes    — detects file type from extension
+# threading    — runs Flask in background while pywebview runs in main thread
+# io.BytesIO   — in-memory file buffer (no disk writes needed for reports/email attachments)

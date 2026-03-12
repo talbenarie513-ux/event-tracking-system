@@ -297,6 +297,236 @@ copy backend\event_system.db backup\event_system_%date%.db
 xcopy backend\uploads backup\uploads /E /I
 ```
 
+
+
+## מבנה מערכת 
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                               USER OPENS APP                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+                          main.py → Flask (port 5000)
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         FRONTEND (index.html + app.js)                       │
+│  Functions: loadUsers(), loadEventsReadOnly(), openNewEventModal(),          │
+│             openEditModal(), saveEvent(), deleteEvent(), uploadFile()        │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+                               GET /api/users
+                                      │
+                                      ▼
+┌─────────────────────────────── ROLE DECISION ────────────────────────────────┐
+│                                                                              │
+│     Development (status + files only)                                        │
+│     Planning (create/edit/delete)                                            │
+│     Admin (full access)                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+                               GET /api/events
+                                      │
+                                      ▼
+┌──────────────────────────────── MAIN DASHBOARD ──────────────────────────────┐
+│  • Event table                                                               │
+│  • Filter / Search                                                           │
+│  • My Events toggle                                                          │
+│  • Click row → Event Detail                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+                            EVENT OPERATIONS FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+[ CREATE EVENT ]
+───────────────────────────────────────────────────────────────────────────────
+User clicks "Create"
+        │
+        ▼
+openNewEventModal()
+        │
+        ▼
+POST /api/events
+        │
+        ▼
+┌──────────────────────── BACKEND: Event Engine ───────────────────────────────┐
+│ • Insert into events (SQLite)                                                │
+│ • log_event_action(event_id, "created")                                      │
+│ • notify_event_created()                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+Reload Event List
+
+
+[ EDIT EVENT ]
+───────────────────────────────────────────────────────────────────────────────
+User clicks "Edit"
+        │
+        ▼
+GET /api/events/<id>
+        │
+        ▼
+openEditModal(id)
+        │
+        ▼
+PUT /api/events/<id>
+        │
+        ▼
+┌──────────────────────── BACKEND: Update Logic ───────────────────────────────┐
+│ • Compare old vs new values                                                  │
+│ • Update DB                                                                  │
+│ • log_event_action(..., "updated")                                           │
+│                                                                              │
+│   IF status changed        → notify_status_changed()                         │
+│   IF responsible assigned  → notify_assignment()                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+UI Refresh
+
+
+[ DELETE / RESTORE ]
+───────────────────────────────────────────────────────────────────────────────
+Delete:
+PUT → set is_deleted = 1
+        │
+        ├── log_event_action(..., "deleted")
+        ▼
+Removed from active list
+
+Restore:
+POST /api/events/<id>/restore
+        │
+        ├── is_deleted = 0
+        └── log_event_action(..., "restored")
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                               FILE FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+Upload:
+User selects file
+        │
+        ▼
+POST /api/events/<event_id>/files
+        │
+        ▼
+┌──────────────────────── BACKEND: File Engine ────────────────────────────────┐
+│ • Save to /uploads/{event_id}/                                               │
+│ • Insert metadata into event_files                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Preview:
+GET /api/files/<file_id>/view
+        │
+        ▼
+┌──────────────────────── File Conversion Logic ───────────────────────────────┐
+│ PDF/Image → Base64                                                           │
+│ Excel      → pandas → HTML table                                             │
+│ DOCX       → convert to HTML                                                 │
+│ TXT        → plain text                                                      │
+│ Other      → fallback to download                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Download:
+GET /api/files/<file_id>/download
+        │
+        ▼
+Binary streamed to client
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           NOTIFICATION SYSTEM
+═══════════════════════════════════════════════════════════════════════════════
+
+Immediate Triggers:
+───────────────────────────────────────────────────────────────────────────────
+Event Created      → notify_event_created()      → send_email()
+Status Changed     → notify_status_changed()     → send_email()
+Assignment         → notify_assignment()         → send_email()
+
+send_email():
+    • Build EmailMessage
+    • smtplib SSL (465) OR TLS (587)
+    • Login (if configured)
+    • Send
+
+
+Scheduled Flow:
+───────────────────────────────────────────────────────────────────────────────
+Scheduler (APScheduler / schedule)
+        │
+        ▼
+Weekly Job
+        │
+        ▼
+generate_weekly_excel_report()
+        │
+        ├── Query events (last 7 days)
+        ├── pandas → Excel (BytesIO)
+        ▼
+send_weekly_report()
+        └── Attach Excel → send_email()
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                               REPORT FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+Manual Download:
+User clicks "Download Report"
+        │
+        ▼
+GET /api/reports/excel
+        │
+        ▼
+Backend:
+    • Query DB
+    • Generate Excel
+    • Stream file
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                                 DATA LAYER
+═══════════════════════════════════════════════════════════════════════════════
+
+SQLite (event_system.db)
+    ├── events
+    ├── users
+    ├── audit_log
+    ├── event_files
+    ├── email_notifications
+    └── email_list
+
+File Storage:
+    /uploads/{event_id}/files
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          COMPLETE CLICK PIPELINE
+═══════════════════════════════════════════════════════════════════════════════
+
+User Action
+    ↓
+Frontend JS Function
+    ↓
+Fetch → Flask Route
+    ↓
+Business Logic
+    ├── SQLite DB Operation
+    ├── Audit Log Entry
+    ├── Conditional Email Trigger
+    ├── File Handling (if applicable)
+    └── Report Generation (if applicable)
+    ↓
+Response (JSON / File)
+    ↓
+UI Update
 ---
 
 ## 🐛 פתרון בעיות / Troubleshooting

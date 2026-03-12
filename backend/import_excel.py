@@ -1,14 +1,15 @@
-import openpyxl
-from datetime import datetime, timedelta
-from database import Database
+import openpyxl  # third-party — reads .xlsx Excel files without needing Microsoft Office installed
+from datetime import datetime, timedelta  # built-in — date parsing and default deadline calculation
+from database import Database             # our own db manager
 
 def parse_date(date_str):
     """Parse various date formats"""
+    # tries multiple common date string formats and returns a clean YYYY-MM-DD string, or None if nothing matches
     if not date_str or date_str == 'None':
         return None
     
     if isinstance(date_str, datetime):
-        return date_str.strftime('%Y-%m-%d')
+        return date_str.strftime('%Y-%m-%d')  # Excel sometimes gives Python datetime objects directly
     
     date_str = str(date_str).strip()
     
@@ -16,27 +17,28 @@ def parse_date(date_str):
         return None
     
     formats = [
-        '%Y-%m-%d %H:%M:%S',
-        '%d/%m/%Y',
-        '%d.%m.%Y',
-        '%d.%m.%y',
-        '%Y-%m-%d',
-        '%d-%m-%Y'
+        '%Y-%m-%d %H:%M:%S',  # ISO format with time
+        '%d/%m/%Y',           # Israeli slash format
+        '%d.%m.%Y',           # dot-separated with 4-digit year
+        '%d.%m.%y',           # dot-separated with 2-digit year
+        '%Y-%m-%d',           # ISO date only
+        '%d-%m-%Y'            # dash-separated
     ]
     
     for fmt in formats:
         try:
             dt = datetime.strptime(date_str, fmt)
-            return dt.strftime('%Y-%m-%d')
+            return dt.strftime('%Y-%m-%d')  # normalize all formats to YYYY-MM-DD for the database
         except:
             continue
     
-    return None
+    return None  # no format matched — caller should handle None gracefully
 
 def map_urgency(hebrew_urgency):
     """Map Hebrew urgency to standard format"""
+    # normalizes various Hebrew urgency spellings (masculine/feminine) to the exact values the DB accepts
     if not hebrew_urgency:
-        return 'בינונית'
+        return 'בינונית'  # default to medium if urgency is missing
     
     urgency_str = str(hebrew_urgency).strip()
     
@@ -44,26 +46,27 @@ def map_urgency(hebrew_urgency):
         return 'בינונית'
     
     mapping = {
-        'גבוה': 'גבוהה',
-        'נמוך': 'נמוכה',
-        'בינוני': 'בינונית',
-        'קריטי': 'קריטית',
-        'גבוהה': 'גבוהה',
-        'נמוכה': 'נמוכה',
-        'בינונית': 'בינונית',
-        'קריטית': 'קריטית'
+        'גבוה': 'גבוהה',      # masculine → feminine form
+        'נמוך': 'נמוכה',      # masculine → feminine form
+        'בינוני': 'בינונית',  # masculine → feminine form
+        'קריטי': 'קריטית',    # masculine → feminine form
+        'גבוהה': 'גבוהה',     # already correct — pass through
+        'נמוכה': 'נמוכה',     # already correct — pass through
+        'בינונית': 'בינונית', # already correct — pass through
+        'קריטית': 'קריטית'    # already correct — pass through
     }
     
-    result = mapping.get(urgency_str, 'בינונית')
+    result = mapping.get(urgency_str, 'בינונית')  # falls back to medium if value is unrecognized
     
     allowed = ['קריטית', 'גבוהה', 'בינונית', 'נמוכה']
     if result not in allowed:
-        return 'בינונית'
+        return 'בינונית'  # double-check — DB has a CHECK constraint so invalid values would cause an error
     
     return result
 
 def parse_priority(priority_value):
     """Parse priority, handling text values"""
+    # converts priority to an integer 1–10 — returns 5 (medium) as default for any invalid input
     if not priority_value:
         return 5
     
@@ -71,14 +74,15 @@ def parse_priority(priority_value):
         p = int(priority_value)
         if 1 <= p <= 10:
             return p
-        return 5
+        return 5  # out of range — use default
     except:
-        pass
+        pass  # value was not a number — fall through to return default
     
     return 5
 
 def map_status(status_value):
     """Map various status values to valid database status"""
+    # converts any status string from the Excel to the exact values the DB CHECK constraint accepts
     if not status_value:
         return 'אירוע חדש'
     
@@ -95,8 +99,9 @@ def map_status(status_value):
     ]
     
     if status_str in valid_statuses:
-        return status_str
+        return status_str  # exact match — use as-is
     
+    # keyword mapping for abbreviated or shortened status values
     status_mapping = {
         'חדש': 'אירוע חדש',
         'בדיקה': 'בבדיקה',
@@ -117,9 +122,10 @@ def map_status(status_value):
     
     for keyword, valid_status in status_mapping.items():
         if keyword in status_str:
-            return valid_status
+            return valid_status  # first matching keyword wins
     
     if len(status_str) > 30:
+        # very long status strings — try to guess meaning from keywords within the string
         if 'טופל' in status_str and 'חלק' in status_str:
             return 'טופל חלקית'
         elif 'טופל' in status_str or 'הושלם' in status_str:
@@ -129,25 +135,27 @@ def map_status(status_value):
         elif 'הקפא' in status_str or 'המתנה' in status_str:
             return 'בהקפאה'
         else:
-            return 'בטיפול'
+            return 'בטיפול'  # unknown long string — assume it's in progress
     
-    return 'בטיפול'
+    return 'בטיפול'  # final fallback — treat unknown short strings as "in progress"
 
 def clean_text(value):
     """Clean text value"""
+    # strips whitespace and converts None/empty to empty string for safe DB insertion
     if value is None:
         return ''
     
     text = str(value).strip()
     
     if text == '' or text.lower() == 'none':
-        return ''
+        return ''  # treat the string "None" the same as actual None
     
     return text
 
 def has_data_in_row(sheet, row_idx):
     """Check if row has any data in columns B-K"""
-    for col_idx in range(2, 12):  # Columns B to K
+    # returns True if at least one cell in columns B–K has a non-empty value — used to skip blank rows
+    for col_idx in range(2, 12):  # columns 2–11 = B–K
         cell_value = sheet.cell(row_idx, col_idx).value
         if cell_value and str(cell_value).strip() != '':
             return True
@@ -155,7 +163,7 @@ def has_data_in_row(sheet, row_idx):
 
 def import_excel_data(excel_path):
     """Import data from Excel file to database with CORRECT column mapping"""
-    db = Database()
+    db = Database()           # get database instance — also initializes tables if they don't exist
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -165,12 +173,13 @@ def import_excel_data(excel_path):
     print(f"📁 File: {excel_path}")
     print()
     
-    wb = openpyxl.load_workbook(excel_path)
-    sheet = wb.active
+    wb = openpyxl.load_workbook(excel_path)  # load the Excel file — raises FileNotFoundError if path is wrong
+    sheet = wb.active  # use the first (active) sheet
     
     # Find header row (row with "#" in column A)
     header_row = None
     for row_idx in range(1, 20):
+        # scan the first 20 rows looking for the row where column A says "#" (the column header row)
         cell_value = sheet.cell(row_idx, 1).value
         if cell_value and str(cell_value).strip() == '#':
             header_row = row_idx
@@ -178,7 +187,7 @@ def import_excel_data(excel_path):
     
     if not header_row:
         print("❌ Could not find header row with '#' in column A!")
-        return
+        return  # abort if header row not found — data rows won't be in expected positions
     
     print(f"✅ Found header row at: Row {header_row}")
     print()
@@ -203,21 +212,21 @@ def import_excel_data(excel_path):
     existing_ids = set()
     for row_idx in range(header_row + 1, sheet.max_row + 1):
         if not has_data_in_row(sheet, row_idx):
-            continue
+            continue  # skip blank rows
         
-        event_num_cell = sheet.cell(row_idx, 1).value  # Column A
+        event_num_cell = sheet.cell(row_idx, 1).value  # column A = event ID
         if event_num_cell:
             try:
                 event_id = int(event_num_cell)
-                existing_ids.add(event_id)
+                existing_ids.add(event_id)  # collect all explicit IDs so we know the max
             except:
-                pass
+                pass  # non-numeric — will be auto-generated in the second pass
     
     # Determine next auto-generated ID
     if existing_ids:
-        next_auto_id = max(existing_ids) + 1
+        next_auto_id = max(existing_ids) + 1  # start auto IDs after the highest explicit ID
     else:
-        next_auto_id = 1
+        next_auto_id = 1  # no explicit IDs found — start from 1
     
     print(f"🔢 Found {len(existing_ids)} rows with explicit IDs")
     print(f"🆕 Auto-generated IDs will start from: {next_auto_id}")
@@ -232,18 +241,18 @@ def import_excel_data(excel_path):
     for row_idx in range(header_row + 1, sheet.max_row + 1):
         # Check if row has any data
         if not has_data_in_row(sheet, row_idx):
-            continue
+            continue  # skip empty rows silently
         
         # Stop after 32 events
         if imported_count >= 32:
             print(f"\n✋ Reached 32 events limit, stopping")
-            break
+            break  # hardcoded limit matching the expected number of events in the source file
         
         # ===== COLUMN A: Event ID (auto-generate if empty) =====
         event_num_cell = sheet.cell(row_idx, 1).value
         
         if not event_num_cell or str(event_num_cell).strip() == '':
-            event_num = next_auto_id
+            event_num = next_auto_id  # assign the next available auto ID
             next_auto_id += 1
             auto_generated_count += 1
             print(f"🆕 Row {row_idx}: Auto-generated ID = {event_num}")
@@ -253,7 +262,7 @@ def import_excel_data(excel_path):
             except:
                 print(f"⚠️ Row {row_idx}: Invalid ID '{event_num_cell}', skipping")
                 skipped_count += 1
-                continue
+                continue  # non-numeric ID — skip this row
         
         # ===== READ ALL COLUMNS =====
         registration_date = parse_date(sheet.cell(row_idx, 2).value)       # Column B
@@ -261,39 +270,40 @@ def import_excel_data(excel_path):
         affected_customers = clean_text(sheet.cell(row_idx, 4).value)      # Column D → לקוחות מושפעים
         event_summary = clean_text(sheet.cell(row_idx, 5).value)           # Column E → תמצית האירוע
         first_contact = parse_date(sheet.cell(row_idx, 6).value)           # Column F
-        status = map_status(sheet.cell(row_idx, 7).value)                  # Column G
+        status = map_status(sheet.cell(row_idx, 7).value)                  # Column G — normalized via map_status()
         status_deadline = parse_date(sheet.cell(row_idx, 8).value)         # Column H
-        urgency = map_urgency(sheet.cell(row_idx, 9).value)                # Column I
-        priority = parse_priority(sheet.cell(row_idx, 10).value)           # Column J
+        urgency = map_urgency(sheet.cell(row_idx, 9).value)                # Column I — normalized via map_urgency()
+        priority = parse_priority(sheet.cell(row_idx, 10).value)           # Column J — normalized via parse_priority()
         event_details = clean_text(sheet.cell(row_idx, 11).value)          # Column K → פירוט האירוע
         
         # ===== HANDLE EMPTY VALUES =====
         if not system:
-            system = 'לא צוין'
+            system = 'לא צוין'  # placeholder so the NOT NULL constraint is satisfied
         
         if not affected_customers:
             affected_customers = 'לא צוין'
         
         if not event_summary:
-            event_summary = f'אירוע #{event_num}'
+            event_summary = f'אירוע #{event_num}'  # generate a minimal summary from the ID
         
         if not event_details:
-            event_details = ''
+            event_details = ''  # details are optional — empty string is fine
         
         # Set default dates if missing
         if not registration_date:
-            registration_date = datetime.now().strftime('%Y-%m-%d')
+            registration_date = datetime.now().strftime('%Y-%m-%d')  # default to today
         
         if not status_deadline:
+            # default deadline = registration date + 3 days
             try:
                 reg_date = datetime.strptime(registration_date, '%Y-%m-%d')
                 deadline_date = reg_date + timedelta(days=3)
                 status_deadline = deadline_date.strftime('%Y-%m-%d')
             except:
-                status_deadline = (datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')
+                status_deadline = (datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')  # fallback to today + 3
         
         try:
-            # Check if event ID already exists
+            # Check if event ID already exists — prevents duplicate key errors on the events table
             cursor.execute('SELECT id FROM events WHERE id = ?', (event_num,))
             if cursor.fetchone():
                 print(f"⚠️ Event #{event_num} already exists in database, skipping")
@@ -319,16 +329,16 @@ def import_excel_data(excel_path):
                 urgency,                    # Column I
                 priority,                   # Column J
                 status,                     # Column G
-                '',                         # status_details (empty)
+                '',                         # status_details — not in Excel, leave blank
                 status_deadline,            # Column H
-                '',                         # additional_notes (empty)
-                'Import',                   # created_by
-                ''                          # event_classification (empty)
+                '',                         # additional_notes — not in Excel, leave blank
+                'Import',                   # created_by — marks these rows as imported, not manually created
+                ''                          # event_classification — not in Excel, leave blank
             ))
             
             imported_count += 1
             
-            # Print verification
+            # Print verification for each imported row
             print(f"✅ Event #{event_num} imported (Excel Row {row_idx})")
             print(f"   📅 Date: {registration_date}")
             print(f"   🏢 מערכת (C): {system[:50]}")
@@ -340,9 +350,9 @@ def import_excel_data(excel_path):
             
         except Exception as e:
             print(f"❌ Error importing Event #{event_num} (Row {row_idx}): {e}")
-            skipped_count += 1
+            skipped_count += 1  # count failures but continue with remaining rows
     
-    conn.commit()
+    conn.commit()  # save all inserted rows to disk in one transaction — faster than committing per row
     conn.close()
     
     print("\n" + "=" * 100)
@@ -363,4 +373,5 @@ def import_excel_data(excel_path):
 
 if __name__ == '__main__':
     excel_path = r'C:\Users\tal_ba\Documents\DataAnalysis-Tal\מערכת תקלות-פיתוח\חוברת1.xlsx'
+    # ⚠️ hardcoded path — update this before running on a different machine
     import_excel_data(excel_path)

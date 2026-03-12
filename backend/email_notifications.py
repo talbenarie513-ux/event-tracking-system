@@ -1,8 +1,14 @@
-"""
-Email Notifications Module — Event Management System
-=====================================================
-This file handles ALL automated email notifications for the system.
+import smtplib  # built-in — handles the actual SMTP connection and email sending
+from email.mime.text import MIMEText          # built-in — creates plain text or HTML email body parts
+from email.mime.multipart import MIMEMultipart # built-in — container that holds body + attachments together
+from email.mime.base import MIMEBase          # built-in — base class for file attachments
+from email import encoders                    # built-in — encodes attachments as base64 for safe email transport
+from datetime import datetime, timedelta      # built-in — date calculations for overdue checks and report ranges
+from io import BytesIO                        # built-in — in-memory file buffer, used to attach Excel without saving to disk
+from database import Database                 # our own db manager
 
+
+"""
 HOW TO ACTIVATE EMAILS — READ THIS FIRST:
 ──────────────────────────────────────────
 When you are ready to send real emails, scroll down to the SMTP_CONFIG
@@ -25,52 +31,32 @@ so as long as the user has a valid email saved, they will receive notifications
 for whichever notification types are enabled for them in the admin panel.
 """
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-from datetime import datetime, timedelta
-from io import BytesIO
-from database import Database
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ▼▼▼  FILL IN YOUR EMAIL DETAILS HERE WHEN READY  ▼▼▼
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SMTP_CONFIG = {
-    # ── REQUIRED ──────────────────────────────────────────────────────────────
-    "host":       "",     # ← Your mail server. Examples:
-                          #     Gmail:        "smtp.gmail.com"
-                          #     Office 365:   "smtp.office365.com"
-                          #     Company SMTP: "mail.geoda.co.il"
+    # all fields empty = stub mode (emails printed to console, not sent)
+    # ⚠️ storing passwords here in plain text is not ideal — use environment variables in production
 
-    "from_email": "",     # ← The email address emails are sent FROM.
-                          #   Example: "noreply@geoda.co.il"
+    "host":       "",     # your mail server e.g. "smtp.gmail.com" or "mail.geoda.co.il"
+    "from_email": "",     # the address emails are sent FROM e.g. "noreply@geoda.co.il"
+    "username":   "",     # login username — usually same as from_email
+    "password":   "",     # SMTP password or app-password (Gmail: generate at myaccount.google.com/apppasswords)
 
-    "username":   "",     # ← Login username for the mail server.
-                          #   Usually the same as from_email.
-
-    "password":   "",     # ← SMTP password or app-password.
-                          #   For Gmail: generate an App Password at
-                          #   https://myaccount.google.com/apppasswords
-
-    # ── OPTIONAL — defaults work for most servers ──────────────────────────
     "port":       587,    # 587 = STARTTLS (most common), 465 = SSL, 25 = plain
-    "use_tls":    True,   # True for port 587 (STARTTLS)
-    "use_ssl":    False,  # True for port 465 (SSL) — set use_tls=False if using this
-    "from_name":  "מערכת מעקב ופיתוח — גאודה",  # Display name in the From field
+    "use_tls":    True,   # True for port 587 (STARTTLS) — upgrades connection to encrypted after connecting
+    "use_ssl":    False,  # True for port 465 (SSL) — encrypted from the start. Set use_tls=False if using this
+    "from_name":  "מערכת מעקב ופיתוח — גאודה",  # display name shown in the From field of the email
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ▲▲▲  END OF CONFIGURATION SECTION  ▲▲▲
-# ═══════════════════════════════════════════════════════════════════════════════
 
-
+# statuses that mean an event is "done" — used to exclude closed events from overdue checks
 CLOSED_STATUSES = ('הושלם הטיפול', 'טופל חלקית', 'בהקפאה')
 
-db = Database()
+db = Database()  # single shared db instance for this whole file
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -79,6 +65,8 @@ db = Database()
 
 def send_email(to_email: str, subject: str, html_body: str,
                text_body: str = "", attachment: tuple | None = None) -> bool:
+
+    # if SMTP not configured — print to console instead of sending (stub mode)
     if not SMTP_CONFIG["host"] or not SMTP_CONFIG["from_email"]:
         print(f"\n[EMAIL STUB] {'─'*60}")
         print(f"  To      : {to_email}")
@@ -90,11 +78,14 @@ def send_email(to_email: str, subject: str, html_body: str,
         return True
 
     try:
+        # MIMEMultipart("mixed") = outer container that can hold both content and file attachments
         msg = MIMEMultipart("mixed")
         msg["Subject"] = subject
         msg["From"]    = f"{SMTP_CONFIG['from_name']} <{SMTP_CONFIG['from_email']}>"
         msg["To"]      = to_email
 
+        # MIMEMultipart("alternative") = inner container with both plain text and HTML versions
+        # email clients pick whichever they support — always including plain text is good practice
         alt = MIMEMultipart("alternative")
         if text_body:
             alt.attach(MIMEText(text_body, "plain", "utf-8"))
@@ -102,25 +93,28 @@ def send_email(to_email: str, subject: str, html_body: str,
         msg.attach(alt)
 
         if attachment:
+            # attach a file (e.g. the Excel report) to the email
             fname, fdata = attachment
-            part = MIMEBase("application", "octet-stream")
+            part = MIMEBase("application", "octet-stream")  # generic binary type works for any file
             part.set_payload(fdata.read())
-            encoders.encode_base64(part)
+            encoders.encode_base64(part)  # converts binary to base64 text for safe email transport
             part.add_header("Content-Disposition", f'attachment; filename="{fname}"')
             msg.attach(part)
 
+        # connect to mail server — two options depending on config
         if SMTP_CONFIG["use_ssl"]:
-            server = smtplib.SMTP_SSL(SMTP_CONFIG["host"], SMTP_CONFIG["port"])
+            server = smtplib.SMTP_SSL(SMTP_CONFIG["host"], SMTP_CONFIG["port"])  # encrypted from start (port 465)
         else:
-            server = smtplib.SMTP(SMTP_CONFIG["host"], SMTP_CONFIG["port"])
+            server = smtplib.SMTP(SMTP_CONFIG["host"], SMTP_CONFIG["port"])      # plain connection first
             if SMTP_CONFIG["use_tls"]:
-                server.starttls()
+                server.starttls()  # upgrade to encrypted (port 587)
 
         if SMTP_CONFIG["username"] and SMTP_CONFIG["password"]:
             server.login(SMTP_CONFIG["username"], SMTP_CONFIG["password"])
 
         server.sendmail(SMTP_CONFIG["from_email"], to_email, msg.as_string())
-        server.quit()
+        server.quit()  # always close the connection after sending
+        # ⚠️ connection is opened/closed per email — inefficient for bulk sending
         print(f"[EMAIL] ✅ Sent → {to_email} | {subject}")
         return True
 
@@ -134,6 +128,8 @@ def send_email(to_email: str, subject: str, html_body: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _html_wrap(title: str, body_html: str) -> str:
+    # wraps any email content in a consistent styled layout — purple header, table styles, footer
+    # {{ double braces in the CSS are needed because this is an f-string — single { would be Python variables
     return f"""<!DOCTYPE html>
 <html dir="rtl" lang="he">
 <head>
@@ -181,6 +177,9 @@ def _html_wrap(title: str, body_html: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _get_users_with_pref(notify_field: str) -> list[dict]:
+    # returns all users who have a specific notification type turned ON
+    # the same function works for all 5 notification types by passing the field name
+    # ⚠️ notify_field is injected directly into SQL — safe here because it always comes from our own code, not user input
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute(f"""
@@ -197,6 +196,8 @@ def _get_users_with_pref(notify_field: str) -> list[dict]:
 
 
 def _get_user_email(user_name: str) -> str | None:
+    # looks up a user's email by their name — returns None if not found or email is empty
+    # used to send emails directly to the responsible person
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -213,10 +214,12 @@ def _get_user_email(user_name: str) -> str | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _urgency_badge(urgency: str) -> str:
+    # returns a colored HTML badge span for the urgency level — used inside email tables
     cls = {"קריטית": "critical", "גבוהה": "high", "בינונית": "medium", "נמוכה": "low"}.get(urgency, "low")
     return f'<span class="badge {cls}">{urgency}</span>'
 
 def _fmt_date(d) -> str:
+    # converts database date format (2024-01-15) to display format (15/01/2024)
     if not d:
         return "—"
     try:
@@ -225,6 +228,8 @@ def _fmt_date(d) -> str:
         return str(d)
 
 def _ev(event: dict, key: str, fallback: str = "—") -> str:
+    # safely gets a value from the event dict — returns fallback if missing/empty
+    # prevents emails showing "None" or blank cells
     val = event.get(key)
     return str(val).strip() if val and str(val).strip() else fallback
 
@@ -234,6 +239,8 @@ def _ev(event: dict, key: str, fallback: str = "—") -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def trigger_status_change(event: dict, old_status: str, changed_by: str):
+    # fired from app.py whenever an event's status changes
+    # sends to all subscribers + directly to the responsible person if not already subscribed
     recipients = _get_users_with_pref("notify_status_change")
 
     eid         = _ev(event, 'id')
@@ -274,13 +281,13 @@ def trigger_status_change(event: dict, old_status: str, changed_by: str):
 
     html = _html_wrap(f"עדכון סטטוס — אירוע #{eid}", body_html)
 
-    # Send to general subscribers
+    # send to general subscribers first, track who already got it to avoid duplicates
     already_sent: set[str] = set()
     for user in recipients:
         send_email(user["email"], subject, html, text_body)
         already_sent.add(user["email"])
 
-    # ── FIX 1: also notify the responsible person directly ───────────────────
+    # also notify the responsible person directly even if they're not a subscriber
     resp_name = _ev(event, 'responsible_person', '')
     if resp_name and resp_name != '—':
         resp_email = _get_user_email(resp_name)
@@ -293,9 +300,11 @@ def trigger_status_change(event: dict, old_status: str, changed_by: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def trigger_new_event(event: dict, created_by: str):
+    # fired from app.py when a new event is created
+    # sends to all users subscribed to new event notifications
     recipients = _get_users_with_pref("notify_new_event")
     if not recipients:
-        return
+        return  # exit early if nobody is subscribed — no point building the email
 
     eid         = _ev(event, 'id')
     summary     = _ev(event, 'event_summary')
@@ -348,8 +357,11 @@ def trigger_new_event(event: dict, created_by: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: str):
+    # fired from app.py when a responsible person is assigned or changed
+    # sends directly to the newly assigned person + all subscribers
     new_responsible = _ev(event, 'responsible_person', '')
 
+    # exit early if nothing actually changed or no responsible person set
     if not new_responsible or new_responsible == '—' or new_responsible == old_responsible:
         return
 
@@ -366,6 +378,7 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
     subject = f"[גאודה] משתמש אחראי — אירוע #{eid} | {summary[:40]}"
 
     def _build_html() -> str:
+        # inner function builds the HTML — called separately for each recipient to keep it clean
         return _html_wrap(
             f"משתמש אחראי — אירוע #{eid}",
             f"""
@@ -396,10 +409,12 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
         f"הוזן משתמש אחראי בשם {new_responsible}."
     )
 
+    # send directly to the newly assigned person first
     assigned_email = _get_user_email(new_responsible)
     if assigned_email:
         send_email(assigned_email, subject, _build_html(), text_body)
 
+    # then send to all subscribers — skip the assigned person if they're already a subscriber
     for user in _get_users_with_pref("notify_responsible"):
         if user["email"] != assigned_email:
             send_email(user["email"], subject, _build_html(), text_body)
@@ -410,12 +425,15 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def send_overdue_notifications():
+    # called daily at 08:00 by the scheduler
+    # sends each responsible person a personalized list of only their overdue events
+    # then sends the full overdue list to all general subscribers (e.g. managers)
     today     = datetime.now().date()
     today_str = today.strftime("%Y-%m-%d")
 
     conn   = db.get_connection()
     cursor = conn.cursor()
-    placeholders = ",".join("?" for _ in CLOSED_STATUSES)
+    placeholders = ",".join("?" for _ in CLOSED_STATUSES)  # builds ?,?,? for the IN clause
     cursor.execute(f"""
         SELECT id, registration_date, system, event_summary, urgency,
                priority, status, status_deadline, responsible_person
@@ -423,14 +441,14 @@ def send_overdue_notifications():
         WHERE status_deadline < ?
           AND status NOT IN ({placeholders})
           AND (is_deleted = 0 OR is_deleted IS NULL)
-        ORDER BY status_deadline ASC
+        ORDER BY status_deadline ASC  -- oldest overdue events first
     """, (today_str, *CLOSED_STATUSES))
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
         print("[EMAIL] No overdue events today — skipping overdue notifications.")
-        return
+        return  # nothing to send
 
     overdue = [
         {
@@ -447,10 +465,10 @@ def send_overdue_notifications():
         for r in rows
     ]
 
-    # ── FIX 2: notify each responsible person about their own overdue events ─
-    # Collect already-notified emails to avoid duplicates in the digest below
+    # track already-notified emails to avoid sending duplicates in the general digest below
     already_notified: set[str] = set()
 
+    # group overdue events by responsible person using defaultdict
     from collections import defaultdict
     events_by_responsible: dict = defaultdict(list)
     for ev in overdue:
@@ -458,10 +476,11 @@ def send_overdue_notifications():
         if resp:
             events_by_responsible[resp].append(ev)
 
+    # send each responsible person only their own overdue events
     for resp_name, resp_events in events_by_responsible.items():
         resp_email = _get_user_email(resp_name)
         if not resp_email:
-            continue
+            continue  # skip if no email found for this person
 
         count = len(resp_events)
         subj  = f"[גאודה] ⚠️ אירועים באיחור — {count} אירועים מחכים לטיפולך | {today.strftime('%d/%m/%Y')}"
@@ -471,7 +490,7 @@ def send_overdue_notifications():
         for ev in resp_events:
             try:
                 dl        = datetime.strptime(ev["status_deadline"], "%Y-%m-%d").date()
-                days_late = (today - dl).days
+                days_late = (today - dl).days  # how many days past the deadline
             except Exception:
                 days_late = "?"
 
@@ -507,7 +526,7 @@ def send_overdue_notifications():
         send_email(resp_email, subj, html, text_body)
         already_notified.add(resp_email)
 
-    # ── Original digest to notify_overdue subscribers (unchanged) ────────────
+    # send the full overdue list to general subscribers (e.g. managers who want to see everything)
     recipients = _get_users_with_pref("notify_overdue")
     if not recipients:
         return
@@ -561,7 +580,6 @@ def send_overdue_notifications():
     <p style="color:#c53030;font-weight:bold;">סה"כ {len(overdue)} אירועים באיחור.</p>"""
 
     text_body = "חלף המועד:\n" + "\n".join(plain_lines)
-
     html = _html_wrap(f"חלף המועד — {today.strftime('%d/%m/%Y')}", body_html)
 
     for user in recipients:
@@ -573,7 +591,9 @@ def send_overdue_notifications():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def send_weekly_report():
-    from reports import generate_excel_report
+    # called every Sunday at 08:00 by the scheduler
+    # generates the Excel report and emails it to all weekly report subscribers
+    from reports import generate_excel_report  # imported here to avoid circular imports at module level
 
     now          = datetime.now()
     today        = now.date()
@@ -582,11 +602,12 @@ def send_weekly_report():
 
     recipients = _get_users_with_pref("notify_weekly_report")
     if not recipients:
-        return
+        return  # nobody subscribed — skip everything
 
     conn   = db.get_connection()
     cursor = conn.cursor()
 
+    # fetch events active in the last 7 days — same logic as the manual report button
     cursor.execute("""
         SELECT * FROM events
         WHERE is_deleted = 0
@@ -599,6 +620,7 @@ def send_weekly_report():
     """, (week_ago_str, week_ago_str, week_ago_str))
 
     def _row_to_event(row):
+        # local helper — duplicated here to avoid importing from app.py (circular import risk)
         return {
             'id': row[0], 'registration_date': row[1], 'first_contact_date': row[2],
             'system': row[3], 'event_summary': row[4], 'event_details': row[5],
@@ -614,6 +636,7 @@ def send_weekly_report():
 
     ph = ",".join("?" for _ in CLOSED_STATUSES)
 
+    # gather summary stats for the email body
     cursor.execute(f"""
         SELECT COUNT(*) FROM events
         WHERE status NOT IN ({ph}) AND (is_deleted=0 OR is_deleted IS NULL)
@@ -644,6 +667,7 @@ def send_weekly_report():
 
     conn.close()
 
+    # generate Excel report once in memory as a BytesIO stream
     excel_stream: BytesIO = generate_excel_report(report_events, report_date=now)
     excel_filename = f"דוח_אירועים_שבועי_{now.strftime('%Y%m%d')}.xlsx"
 
@@ -679,7 +703,7 @@ def send_weekly_report():
     html = _html_wrap(f"דוח שבועי — {today.strftime('%d/%m/%Y')}", body_html)
 
     for user in recipients:
-        excel_stream.seek(0)
+        excel_stream.seek(0)  # ⚠️ must rewind to start before each send — otherwise 2nd recipient gets empty file
         send_email(
             user["email"], subject, html, text_body,
             attachment=(excel_filename, excel_stream)
@@ -691,19 +715,25 @@ def send_weekly_report():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def start_scheduler():
+    # starts a background scheduler that runs email jobs on a timer
+    # called once from main.py when the app launches
+    # ⚠️ if the app is shut down overnight, scheduled jobs won't run — no persistent job queue
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
+        # BackgroundScheduler runs in a separate thread — doesn't block the Flask server
 
-        scheduler = BackgroundScheduler(timezone="Asia/Jerusalem")
+        scheduler = BackgroundScheduler(timezone="Asia/Jerusalem")  # all times in Israel timezone
 
+        # daily overdue check — runs every day at 08:00
         scheduler.add_job(
             send_overdue_notifications,
             trigger="cron",
             hour=8, minute=0,
             id="overdue_daily",
-            replace_existing=True
+            replace_existing=True  # prevents duplicate jobs if scheduler is restarted
         )
 
+        # weekly report — runs every Sunday at 08:00
         scheduler.add_job(
             send_weekly_report,
             trigger="cron",

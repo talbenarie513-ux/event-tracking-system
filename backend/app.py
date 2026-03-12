@@ -1,57 +1,67 @@
 from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
-from flask_cors import CORS
-from database import Database
-import os
-import mimetypes
-import base64
-from datetime import datetime, timedelta
-from werkzeug.utils import secure_filename
+# Flask — the web framework. request=reads incoming data, jsonify=turns dicts to JSON,
+# send_file=sends a file download, send_from_directory=serves static files, make_response=builds custom responses
+from flask_cors import CORS          # allows the browser frontend to call this API without being blocked
+from database import Database        # our own database manager class
+import os                            # built-in — file/folder path operations
+import mimetypes                     # built-in — detects file type from filename (e.g. image/png)
+import base64                        # built-in — encodes binary files to text for sending through JSON
+from datetime import datetime, timedelta  # built-in — all date/time logic
+from werkzeug.utils import secure_filename  # sanitizes uploaded filenames to prevent path attacks
 
 from email_notifications import (
-    trigger_new_event,
-    trigger_status_change,
-    trigger_responsible_assigned,
+    trigger_new_event,           # fires when a new event is created
+    trigger_status_change,       # fires when an event's status changes
+    trigger_responsible_assigned, # fires when a responsible person is assigned
 )
 
-app = Flask(__name__)
-CORS(app)
+app = Flask(__name__)  # creates the Flask application
+CORS(app)              # enables cross-origin requests so the frontend can call the API freely
 
 @app.after_request
 def add_header(response):
+    # runs after every single response — tells the browser never to cache anything so data is always fresh
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, post-check=0, pre-check=0, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '-1'
     return response
 
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # disables Flask's own file caching as well
 
+# statuses that mean an event is "closed" — used throughout the file to exclude finished events
 CLOSED_STATUSES = ('הושלם הטיפול', 'טופל חלקית', 'בהקפאה')
 
-# Base directory = folder where app.py lives
+# absolute path to the folder where app.py lives — used as a base for all file paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_next_available_id(cursor):
+    # finds the highest existing event ID and returns +1. Returns 1 if table is empty
+    # ⚠️ could cause duplicate ID collisions if two users create events at the exact same time
     cursor.execute('SELECT MAX(id) FROM events')
     max_id = cursor.fetchone()[0]
     return (max_id + 1) if max_id else 1
 
-db = Database()
+db = Database()  # creates the single shared database instance used by all routes
 
+# folder where uploaded files are saved — created automatically if it doesn't exist
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+# whitelist of allowed upload extensions — anything not in this list is rejected
 ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'doc', 'docx', 'pdf', 'png', 'jpg', 'jpeg',
                       'msg', 'shp', 'zip', 'eml', 'csv', 'txt', 'gif', 'webp', 'svg'}
 
 if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+    os.makedirs(UPLOAD_FOLDER)  # creates the uploads folder on first run
 
 def allowed_file(filename):
+    # checks if the file extension is in the allowed list
+    # rsplit('.', 1) splits from the right so 'report.final.xlsx' correctly returns 'xlsx'
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def resolve_file_path(stored_path):
     """
-    Try to find the actual file on disk given a stored path.
-    Handles absolute paths, relative paths, and mixed separators.
-    Returns the resolved path if found, or the original stored_path if not.
+    Tries multiple strategies to find a file on disk.
+    Exists because older versions stored paths differently (absolute vs relative, different separators).
+    Tries 5 combinations before giving up and returning the original path.
     """
     # 1. Try as-is (already absolute or cwd-relative)
     if os.path.exists(stored_path):
@@ -80,9 +90,11 @@ def resolve_file_path(stored_path):
         if os.path.exists(candidate4):
             return candidate4
 
-    return stored_path  # not found — return original so caller can report it
+    return stored_path  # not found — return original so caller can report the error
 
 def row_to_event(row):
+    # converts a raw database tuple into a named dictionary so code is readable
+    # e.g. event['status'] instead of row[9]
     return {
         'id':                   row[0],
         'registration_date':    row[1],
@@ -107,6 +119,7 @@ def row_to_event(row):
         'is_deleted':           row[20],
     }
 
+# maps database column names to Hebrew display labels — used in the audit log history modal
 FIELD_LABELS = {
     'registration_date':    'תאריך רישום',
     'first_contact_date':   'תאריך פנייה ראשונה',
@@ -127,6 +140,9 @@ FIELD_LABELS = {
 }
 
 def log_audit(cursor, event_id, action, changed_by, changes=None):
+    # writes to the audit_log table — called after every create, update, delete, or restore
+    # for simple actions (created/deleted/restored) just logs the action with no field details
+    # for updates, logs each changed field separately with old and new values
     if action in ('created', 'deleted', 'restored') or not changes:
         cursor.execute('''
             INSERT INTO audit_log (event_id, action, changed_by)
@@ -140,10 +156,12 @@ def log_audit(cursor, event_id, action, changed_by, changes=None):
             ''', (event_id, action, field, str(old_val) if old_val is not None else '',
                   str(new_val) if new_val is not None else '', changed_by))
 
+# ── serves the main HTML page when someone visits the root URL
 @app.route('/')
 def serve_index():
     return send_from_directory('..', 'index.html')
 
+# ── serves the main JavaScript file
 @app.route('/app.js')
 def serve_js():
     return send_from_directory('..', 'app.js')
@@ -152,6 +170,7 @@ def serve_js():
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
+    # returns all users as JSON — used to populate the user dropdown and responsible person dropdown
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, name, role, email FROM users ORDER BY name')
@@ -161,6 +180,8 @@ def get_users():
 
 @app.route('/api/users', methods=['POST'])
 def add_user():
+    # creates a new user and automatically adds them to email_list and notification preferences
+    # three things happen in one request — user row, email list entry, and notification row
     data = request.json
     if not data.get('email'):
         return jsonify({'success': False, 'error': 'אימייל הוא שדה חובה'}), 400
@@ -169,7 +190,7 @@ def add_user():
     try:
         cursor.execute('INSERT INTO users (name, role, email) VALUES (?, ?, ?)',
                        (data['name'], data['role'], data['email']))
-        user_id = cursor.lastrowid
+        user_id = cursor.lastrowid  # gets the auto-assigned ID of the just-inserted user
         cursor.execute('INSERT OR IGNORE INTO email_list (email, name, added_by) VALUES (?, ?, ?)',
                        (data['email'], data['name'], 'System'))
         cursor.execute('INSERT OR IGNORE INTO email_notifications (user_id) VALUES (?)', (user_id,))
@@ -182,6 +203,7 @@ def add_user():
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
+    # updates a user's name, role, and email — also updates their email in email_list to stay in sync
     data = request.json
     if not data.get('email'):
         return jsonify({'success': False, 'error': 'אימייל הוא שדה חובה'}), 400
@@ -189,7 +211,7 @@ def update_user(user_id):
     cursor = conn.cursor()
     try:
         cursor.execute('SELECT email FROM users WHERE id = ?', (user_id,))
-        old = cursor.fetchone()
+        old = cursor.fetchone()  # get old email so we can update it in email_list too
         cursor.execute('UPDATE users SET name = ?, role = ?, email = ? WHERE id = ?',
                        (data['name'], data['role'], data['email'], user_id))
         if old:
@@ -204,6 +226,7 @@ def update_user(user_id):
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
+    # permanently deletes a user — no soft delete here unlike events
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
@@ -219,6 +242,8 @@ def delete_user(user_id):
 
 @app.route('/api/events', methods=['GET'])
 def get_events():
+    # returns events as JSON with optional filtering by status, urgency, search text, and deleted flag
+    # builds a dynamic SQL query using WHERE 1=1 so AND conditions can be added freely
     conn = db.get_connection()
     cursor = conn.cursor()
     show_deleted = request.args.get('show_deleted', 'false').lower() == 'true'
@@ -226,7 +251,7 @@ def get_events():
     urgency_filter = request.args.get('urgency')
     search = request.args.get('search', '').strip()
 
-    query = 'SELECT * FROM events WHERE 1=1'
+    query = 'SELECT * FROM events WHERE 1=1'  # WHERE 1=1 is a trick to make adding AND conditions easier
     params = []
 
     if not show_deleted:
@@ -238,18 +263,20 @@ def get_events():
         query += ' AND urgency = ?'
         params.append(urgency_filter)
     if search:
+        # searches across three fields at once using LIKE with % wildcards
         query += ' AND (event_summary LIKE ? OR system LIKE ? OR event_details LIKE ?)'
         search_param = f'%{search}%'
         params.extend([search_param, search_param, search_param])
 
     query += ' ORDER BY id DESC'
-    cursor.execute(query, params)
+    cursor.execute(query, params)  # ? placeholders prevent SQL injection
     events = [row_to_event(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(events)
 
 @app.route('/api/events/<int:event_id>', methods=['GET'])
 def get_event(event_id):
+    # returns a single event by ID, including its attached files
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
@@ -274,6 +301,8 @@ def get_event(event_id):
 
 @app.route('/api/events/<int:event_id>/history', methods=['GET'])
 def get_event_history(event_id):
+    # returns the full audit log for an event — powers the history modal in the frontend
+    # includes creation info plus every field change grouped by timestamp
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT created_by, created_at FROM events WHERE id = ?', (event_id,))
@@ -289,7 +318,7 @@ def get_event_history(event_id):
         SELECT action, field_name, old_value, new_value, changed_by, changed_at
         FROM audit_log
         WHERE event_id = ?
-        ORDER BY changed_at ASC
+        ORDER BY changed_at ASC  -- oldest changes first
     ''', (event_id,))
 
     entries = []
@@ -297,7 +326,7 @@ def get_event_history(event_id):
         entries.append({
             'action':      r[0],
             'field_name':  r[1],
-            'field_label': FIELD_LABELS.get(r[1], r[1]) if r[1] else None,
+            'field_label': FIELD_LABELS.get(r[1], r[1]) if r[1] else None,  # Hebrew label if available
             'old_value':   r[2],
             'new_value':   r[3],
             'changed_by':  r[4],
@@ -316,6 +345,8 @@ def get_event_history(event_id):
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
+    # creates a new event. Admin gets relaxed validation (missing fields get defaults),
+    # other roles get strict validation (missing required fields raise KeyError)
     data = request.json
     user_role = data.get('user_role', '')
     conn = db.get_connection()
@@ -329,9 +360,10 @@ def create_event():
                 conn.close()
                 return jsonify({'success': False, 'error': f'מספר אירוע {event_id} כבר קיים במערכת'}), 400
         else:
-            event_id = get_next_available_id(cursor)
+            event_id = get_next_available_id(cursor)  # auto-assign next available ID
 
         if user_role == 'admin':
+            # admin — all fields optional, missing ones get sensible defaults
             registration_date  = data.get('registration_date') or datetime.now().strftime('%Y-%m-%d')
             system             = data.get('system') or 'לא צוין'
             event_summary      = data.get('event_summary') or f'אירוע #{event_id}'
@@ -342,6 +374,7 @@ def create_event():
             status             = data.get('status') or 'אירוע חדש'
             status_deadline    = data.get('status_deadline') or (datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')
         else:
+            # non-admin — fields are required. Missing ones will raise KeyError caught below
             registration_date  = data['registration_date']
             system             = data['system']
             event_summary      = data['event_summary']
@@ -352,6 +385,7 @@ def create_event():
             status             = data['status']
             status_deadline    = data['status_deadline']
 
+        # auto-set completion date if status is already "completed" at creation time
         completion_date = None
         if status == 'הושלם הטיפול':
             completion_date = data.get('completion_date') or datetime.now().strftime('%Y-%m-%d')
@@ -372,12 +406,14 @@ def create_event():
             data.get('additional_notes', ''), data['created_by']
         ))
 
+        # record the initial status in status_history
         cursor.execute('INSERT INTO status_history (event_id, status, changed_by) VALUES (?, ?, ?)',
                        (event_id, status, data['created_by']))
-        log_audit(cursor, event_id, 'created', data['created_by'])
+        log_audit(cursor, event_id, 'created', data['created_by'])  # log the creation action
         conn.commit()
         conn.close()
 
+        # fire email notifications after successful save
         full_event = {
             "id":                 event_id,
             "system":             system,
@@ -394,11 +430,13 @@ def create_event():
         }
         trigger_new_event(full_event, data["created_by"])
         if data.get("responsible_person"):
+            # also fire responsible assignment email if one was set at creation
             trigger_responsible_assigned(full_event, "", data["created_by"])
 
         return jsonify({'success': True, 'message': 'האירוע נוצר בהצלחה', 'event_id': event_id})
 
     except KeyError as e:
+        # missing required field — only happens for non-admin users
         conn.close()
         return jsonify({'success': False, 'error': f'שדה חובה חסר: {str(e)}'}), 400
     except Exception as e:
@@ -409,6 +447,7 @@ def create_event():
 
 @app.route('/api/events/<int:event_id>', methods=['PUT'])
 def update_event(event_id):
+    # updates an existing event. Compares every field before and after to log only what actually changed
     data = request.json
     conn = db.get_connection()
     cursor = conn.cursor()
@@ -419,7 +458,7 @@ def update_event(event_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Event not found'}), 404
 
-        old = row_to_event(old_row)
+        old = row_to_event(old_row)  # snapshot of the event before the update
         old_status      = old['status']
         old_id          = old['id']
         old_responsible = old['responsible_person']
@@ -429,6 +468,7 @@ def update_event(event_id):
             new_id = old_id
         new_id = int(new_id)
 
+        # check if the new ID is already taken by a different event
         if new_id != old_id:
             cursor.execute('SELECT id FROM events WHERE id = ? AND id != ?', (new_id, old_id))
             if cursor.fetchone():
@@ -438,10 +478,11 @@ def update_event(event_id):
         new_status      = data.get('status', old_status)
         completion_date = data.get('completion_date')
 
+        # auto-set or clear completion_date based on status
         if new_status == 'הושלם הטיפול' and not completion_date:
             completion_date = datetime.now().strftime('%Y-%m-%d')
         elif new_status != 'הושלם הטיפול':
-            completion_date = None
+            completion_date = None  # clear it if status is no longer "completed"
 
         cursor.execute('''
             UPDATE events SET
@@ -461,10 +502,12 @@ def update_event(event_id):
             data.get('price_quote'), data.get('additional_notes', ''), event_id
         ))
 
+        # if status changed, record it in status_history
         if new_status != old_status:
             cursor.execute('INSERT INTO status_history (event_id, status, changed_by) VALUES (?, ?, ?)',
                            (event_id, new_status, data.get('updated_by', 'Unknown')))
 
+        # compare old vs new values for every field to find what actually changed
         new_data = {
             'registration_date':    data.get('registration_date'),
             'first_contact_date':   data.get('first_contact_date'),
@@ -488,13 +531,14 @@ def update_event(event_id):
             old_val = str(old.get(field)) if old.get(field) is not None else ''
             new_val_str = str(new_val) if new_val is not None else ''
             if old_val != new_val_str:
-                changes[field] = (old_val, new_val_str)
+                changes[field] = (old_val, new_val_str)  # only log fields that actually changed
 
         if changes:
             log_audit(cursor, new_id, 'updated', data.get('updated_by', 'Unknown'), changes)
 
         conn.commit()
 
+        # re-fetch the updated event to pass accurate data to email triggers
         conn2 = db.get_connection()
         cur2  = conn2.cursor()
         cur2.execute("SELECT * FROM events WHERE id = ?", (new_id,))
@@ -503,8 +547,10 @@ def update_event(event_id):
 
         if updated_row:
             updated_event = row_to_event(updated_row)
+            # only fire status change email if status actually changed
             if new_status != old_status:
                 trigger_status_change(updated_event, old_status, data.get("updated_by", ""))
+            # only fire responsible email if responsible person actually changed
             new_responsible = data.get("responsible_person", "")
             if new_responsible != (old_responsible or ""):
                 trigger_responsible_assigned(updated_event, old_responsible or "", data.get("updated_by", ""))
@@ -519,6 +565,8 @@ def update_event(event_id):
 
 @app.route('/api/events/<int:event_id>', methods=['DELETE'])
 def delete_event(event_id):
+    # soft delete — sets is_deleted=1 instead of actually removing the row
+    # event can be restored later via the restore endpoint
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
@@ -535,6 +583,7 @@ def delete_event(event_id):
 
 @app.route('/api/events/<int:event_id>/restore', methods=['PUT'])
 def restore_event(event_id):
+    # reverses a soft delete by setting is_deleted back to 0
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
@@ -551,6 +600,8 @@ def restore_event(event_id):
 
 @app.route('/api/events/<int:event_id>/files', methods=['POST'])
 def upload_file(event_id):
+    # saves an uploaded file to disk in /uploads/{event_id}/ and records its metadata in the db
+    # timestamp prefix on filename prevents two files with the same name overwriting each other
     if 'file' not in request.files:
         return jsonify({'success': False, 'error': 'No file provided'}), 400
     file = request.files['file']
@@ -561,11 +612,11 @@ def upload_file(event_id):
 
     event_folder = os.path.join(UPLOAD_FOLDER, str(event_id))
     if not os.path.exists(event_folder):
-        os.makedirs(event_folder)
+        os.makedirs(event_folder)  # create event-specific subfolder if it doesn't exist
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = secure_filename(file.filename)
-    # Store path relative to BASE_DIR so it resolves correctly regardless of cwd
+    filename = secure_filename(file.filename)  # sanitize filename to prevent path attacks
+    # store relative path so it works regardless of where the app is installed
     rel_path = os.path.join('uploads', str(event_id), f"{timestamp}_{filename}")
     abs_path = os.path.join(BASE_DIR, rel_path)
     file.save(abs_path)
@@ -584,11 +635,12 @@ def upload_file(event_id):
     except Exception as e:
         conn.close()
         if os.path.exists(abs_path):
-            os.remove(abs_path)
+            os.remove(abs_path)  # clean up the file from disk if the db insert failed
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events/<int:event_id>/files', methods=['GET'])
 def get_event_files(event_id):
+    # returns all files attached to a specific event, newest first
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -602,7 +654,7 @@ def get_event_files(event_id):
 
 @app.route('/api/files/<int:file_id>', methods=['GET'])
 def download_file(file_id):
-    """Legacy endpoint — kept for compatibility."""
+    # legacy download endpoint — kept for backwards compatibility with older frontend calls
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT original_filename, file_path FROM event_files WHERE id = ?', (file_id,))
@@ -618,7 +670,8 @@ def download_file(file_id):
 
 @app.route('/api/files/<int:file_id>/download', methods=['GET'])
 def download_file_blob(file_id):
-    """Returns file as plain binary — works correctly inside pywebview."""
+    # preferred download endpoint — reads file as binary and returns it directly
+    # works correctly inside pywebview where the legacy endpoint sometimes fails
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT original_filename, file_path FROM event_files WHERE id = ?', (file_id,))
@@ -631,9 +684,9 @@ def download_file_blob(file_id):
     if not os.path.exists(file_path):
         return jsonify({'error': 'File not found on disk'}), 404
 
-    mime, _ = mimetypes.guess_type(row[0])
+    mime, _ = mimetypes.guess_type(row[0])  # detect the correct MIME type from the filename
     if not mime:
-        mime = 'application/octet-stream'
+        mime = 'application/octet-stream'  # fallback generic binary type
 
     with open(file_path, 'rb') as f:
         data = f.read()
@@ -646,11 +699,13 @@ def download_file_blob(file_id):
 
 
 # ============= FILE VIEW HELPERS =============
+# Each helper converts a specific file type into HTML for browser preview
 
 def _xlsx_to_html(file_path):
+    # converts an .xlsx file into an HTML table using openpyxl — one table per sheet
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(file_path, data_only=True)
+        wb = openpyxl.load_workbook(file_path, data_only=True)  # data_only=True reads cell values not formulas
         html_parts = []
         for sheet in wb.worksheets:
             html_parts.append(f'<h3 style="color:#667eea;margin:16px 0 8px;">גיליון: {sheet.title}</h3>')
@@ -659,7 +714,7 @@ def _xlsx_to_html(file_path):
                 '<table style="border-collapse:collapse;width:100%;font-size:13px;direction:ltr;">'
             )
             for r_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-                tag = 'th' if r_idx == 0 else 'td'
+                tag = 'th' if r_idx == 0 else 'td'  # first row becomes header cells
                 bg  = 'background:#667eea;color:#fff;' if r_idx == 0 else (
                       'background:#f7fafc;' if r_idx % 2 == 0 else 'background:#fff;')
                 html_parts.append('<tr>')
@@ -677,6 +732,7 @@ def _xlsx_to_html(file_path):
 
 
 def _xls_to_html(file_path):
+    # converts old .xls format files using xlrd — same output as _xlsx_to_html
     try:
         import xlrd
         wb = xlrd.open_workbook(file_path)
@@ -708,6 +764,7 @@ def _xls_to_html(file_path):
 
 
 def _csv_to_html(file_path):
+    # converts a CSV file into an HTML table — handles UTF-8 BOM encoding common in Excel exports
     try:
         import csv, codecs
         html_parts = [
@@ -734,6 +791,7 @@ def _csv_to_html(file_path):
 
 
 def _docx_to_html(file_path):
+    # converts a .docx Word file into HTML — paragraphs become <p>, headings become <h>, tables become <table>
     try:
         from docx import Document
         doc = Document(file_path)
@@ -776,6 +834,8 @@ def _docx_to_html(file_path):
 
 @app.route('/api/files/<int:file_id>/view', methods=['GET'])
 def view_file(file_id):
+    # returns file content in a format the frontend can preview in the browser
+    # different strategies per file type: base64 for images/pdf, html for office files, plain text for txt
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT original_filename, file_path FROM event_files WHERE id = ?', (file_id,))
@@ -794,6 +854,7 @@ def view_file(file_id):
 
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
 
+    # file types that can be displayed directly via base64 encoding
     b64_types = {
         'pdf':  'application/pdf',
         'png':  'image/png',
@@ -806,6 +867,7 @@ def view_file(file_id):
 
     try:
         if ext in b64_types:
+            # encode file as base64 string so it can be sent through JSON and displayed in browser
             with open(file_path, 'rb') as f:
                 data_b64 = base64.b64encode(f.read()).decode('utf-8')
             return jsonify({
@@ -817,12 +879,8 @@ def view_file(file_id):
             })
 
         if ext == 'txt':
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-            except Exception:
-                with open(file_path, 'rb') as f:
-                    content = f.read().decode('utf-8', errors='replace')
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
             return jsonify({
                 'previewable':  True,
                 'preview_type': 'text',
@@ -863,8 +921,10 @@ def view_file(file_id):
             })
 
         if ext == 'doc':
+            # old .doc format not supported for preview — user must download
             return jsonify({'previewable': False, 'filename': filename, 'reason': 'doc_old'})
 
+        # any other file type — not previewable, frontend will offer download instead
         return jsonify({'previewable': False, 'filename': filename})
 
     except Exception as e:
@@ -874,6 +934,7 @@ def view_file(file_id):
 
 @app.route('/api/files/<int:file_id>', methods=['DELETE'])
 def delete_file(file_id):
+    # deletes the file record from db AND removes the physical file from disk
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
@@ -884,7 +945,7 @@ def delete_file(file_id):
             conn.commit()
             file_path = resolve_file_path(row[0])
             if os.path.exists(file_path):
-                os.remove(file_path)
+                os.remove(file_path)  # remove physical file from disk
         conn.close()
         return jsonify({'success': True, 'message': 'הקובץ נמחק בהצלחה'})
     except Exception as e:
@@ -895,6 +956,7 @@ def delete_file(file_id):
 
 @app.route('/api/email-list', methods=['GET'])
 def get_email_list():
+    # returns all emails in the notification list — shown in the admin panel
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, email, name, added_by, added_at FROM email_list ORDER BY name')
@@ -905,6 +967,7 @@ def get_email_list():
 
 @app.route('/api/email-list', methods=['POST'])
 def add_email():
+    # manually adds an email address to the notification list
     data = request.json
     conn = db.get_connection()
     cursor = conn.cursor()
@@ -920,6 +983,7 @@ def add_email():
 
 @app.route('/api/email-list/<int:email_id>', methods=['DELETE'])
 def delete_email(email_id):
+    # removes an email from the notification list
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
@@ -935,6 +999,8 @@ def delete_email(email_id):
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
+    # powers the four stat cards at the top of the page
+    # runs four separate SQL queries — total active, overdue, critical, and by status
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -943,7 +1009,7 @@ def get_stats():
     """)
     total_events = cursor.fetchone()[0]
     today = datetime.now().strftime('%Y-%m-%d')
-    placeholders = ','.join('?' for _ in CLOSED_STATUSES)
+    placeholders = ','.join('?' for _ in CLOSED_STATUSES)  # builds ?,?,? dynamically for the IN clause
     cursor.execute(f'''
         SELECT COUNT(*) FROM events
         WHERE status_deadline < ? AND status NOT IN ({placeholders}) AND is_deleted = 0
@@ -961,6 +1027,8 @@ def get_stats():
 
 @app.route('/api/notifications', methods=['GET'])
 def get_notifications():
+    # returns all users with their notification preferences — used to render the notifications table in admin panel
+    # LEFT JOIN means users with no notification row still appear (with 0 defaults via COALESCE)
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -979,6 +1047,8 @@ def get_notifications():
 
 @app.route('/api/notifications/<int:user_id>', methods=['PUT'])
 def update_notification(user_id):
+    # toggles a single notification type on or off for a user
+    # INSERT OR UPDATE pattern — creates the row if it doesn't exist, updates it if it does
     data = request.json
     field = data.get('field')
     value = data.get('value')
@@ -1002,6 +1072,7 @@ def update_notification(user_id):
 
 @app.route('/api/notifications/<int:user_id>/all', methods=['PUT'])
 def update_all_notifications(user_id):
+    # turns all notification types on or off at once for a user — used by the "select all" checkbox
     data = request.json
     value = data.get('value', 0)
     conn = db.get_connection()
@@ -1029,6 +1100,8 @@ def update_all_notifications(user_id):
 
 @app.route('/api/reports/excel', methods=['GET'])
 def generate_excel_report():
+    # generates and streams the weekly Excel report directly to the browser as a download
+    # fetches events active/created/updated in the last 7 days — file never saved to disk
     from reports import generate_excel_report as build_report
     now = datetime.now()
     seven_days_ago = now - timedelta(days=7)

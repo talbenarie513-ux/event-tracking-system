@@ -1,20 +1,25 @@
-import sqlite3
-import os
+import sqlite3  # built-in — handles all communication with the SQLite .db file
+import os        # built-in — used for file path operations
 
 class Database:
+    # Central database manager — every other file imports and uses this class
+
     def __init__(self, db_path='event_system.db'):
+        # Runs automatically on Database() — sets the db file path and calls init_database() immediately
         self.db_path = db_path
         self.init_database()
     
     def get_connection(self):
+        # Opens a fresh connection to the SQLite file — ⚠️ always call conn.close() after use or the file stays locked
         conn = sqlite3.connect(self.db_path)
         return conn
     
     def init_database(self):
+        # Creates all tables if they don't exist yet — safe to run multiple times on startup
         conn = self.get_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor()  # cursor = the "pen" that executes SQL commands
         
-        # Users table
+        # USERS TABLE — stores name, role, email. Role is enforced by CHECK so invalid values are rejected at db level
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +30,9 @@ class Database:
             )
         ''')
         
-        # Events table
+        # EVENTS TABLE — the main table. id has no AUTOINCREMENT so custom IDs can be assigned manually
+        # CHECK constraints on urgency, priority, status mean the db itself rejects invalid values
+        # is_deleted = soft delete flag (1 = deleted, 0 = active) — rows are never truly removed
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY,
@@ -63,19 +70,21 @@ class Database:
             )
         ''')
         
-        # Check and add missing columns
+        # MIGRATION — checks if completion_date column exists and adds it if missing (handles older db versions)
         cursor.execute("PRAGMA table_info(events)")
         columns = [col[1] for col in cursor.fetchall()]
         if 'completion_date' not in columns:
             cursor.execute('ALTER TABLE events ADD COLUMN completion_date DATE')
             print("✅ Added completion_date column to events table")
 
-        # *** MIGRATION: fix old status values to new names ***
+        # DATA FIXES — renames old status values from previous versions to current names. Harmless if nothing matches
         cursor.execute("UPDATE events SET status = 'הושלם הטיפול' WHERE status = 'טופל'")
         cursor.execute("UPDATE events SET status = 'בבדיקת תחום תכנון' WHERE status = 'בבדיקת תחנתכנון'")
         cursor.execute("UPDATE events SET status = 'בבדיקת תחום תכנון' WHERE status = 'בבדיקת תחנת תכנון'")
 
-        # Event files table
+        # EVENT FILES TABLE — stores metadata about uploaded files. Actual files live on disk in /uploads/{event_id}/
+        # ON DELETE CASCADE means if an event is deleted, its file records are deleted too
+        # ⚠️ but the physical files on disk are NOT auto-deleted — that's handled manually in app.py
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS event_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +97,7 @@ class Database:
             )
         ''')
         
-        # Status history table
+        # STATUS HISTORY TABLE — records every status change over time for an event
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS status_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,7 +109,8 @@ class Database:
             )
         ''')
 
-        # ── NEW: Audit log table — records every field change ────────────────
+        # AUDIT LOG TABLE — records every single field change (who changed what, from what value, to what value)
+        # This is what powers the history modal in the frontend
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,7 +125,7 @@ class Database:
             )
         ''')
         
-        # Email log table
+        # EMAIL LOG TABLE — meant to log sent emails. Created but not heavily used in current code
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,7 +138,8 @@ class Database:
             )
         ''')
         
-        # Email list table
+        # EMAIL LIST TABLE — list of email addresses that receive notifications
+        # UNIQUE on email prevents duplicates
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_list (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,7 +150,8 @@ class Database:
             )
         ''')
 
-        # Email notifications preferences table
+        # EMAIL NOTIFICATIONS TABLE — stores per-user notification preferences (0 = off, 1 = on)
+        # One row per user, UNIQUE on user_id prevents duplicates
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +166,7 @@ class Database:
             )
         ''')
         
-        # Create default admin user if no users exist
+        # DEFAULT ADMIN — if no users exist at all (fresh install), creates a default admin so the app isn't empty
         cursor.execute('SELECT COUNT(*) FROM users')
         if cursor.fetchone()[0] == 0:
             cursor.execute('''
@@ -162,12 +174,14 @@ class Database:
                 VALUES ('Admin', 'admin', 'admin@example.com')
             ''')
         
-        conn.commit()
-        self.populate_email_list()
-        self.init_notification_rows()
+        conn.commit()  # saves all the above changes to disk
+        self.populate_email_list()   # auto-syncs user emails into the email_list table
+        self.init_notification_rows() # ensures every user has a notification preferences row
         conn.close()
     
     def populate_email_list(self):
+        # Copies all user emails into email_list so they appear in notification settings
+        # INSERT OR IGNORE means existing emails are skipped — no duplicates
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
@@ -185,6 +199,8 @@ class Database:
             conn.close()
 
     def init_notification_rows(self):
+        # Creates a notification preferences row for every user that doesn't have one yet
+        # Without this, checking preferences for a new user would crash — no row to read
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
@@ -200,5 +216,3 @@ class Database:
             print(f"Error initializing notification rows: {e}")
         finally:
             conn.close()
-
-        
