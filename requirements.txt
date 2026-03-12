@@ -24,6 +24,7 @@ Werkzeug==2.3.0        # utility library used internally by Flask — also provi
 apscheduler==3.10.4    # background job scheduler — runs the daily overdue check and weekly report email
                        # configured in email_notifications.py → start_scheduler()
 
+requests>=2.31.0   # HTTP client used in main.py by DownloadAPI to fetch files from local Flask server
 # ── NOT LISTED BUT USED (built into Python — no install needed) ──
 # sqlite3      — database engine
 # smtplib      — email sending

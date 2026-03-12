@@ -1,25 +1,21 @@
-import sqlite3  # built-in — handles all communication with the SQLite .db file
-import os        # built-in — used for file path operations
+import sqlite3
+import os
 
 class Database:
-    # Central database manager — every other file imports and uses this class
 
     def __init__(self, db_path='event_system.db'):
-        # Runs automatically on Database() — sets the db file path and calls init_database() immediately
         self.db_path = db_path
         self.init_database()
-    
+
     def get_connection(self):
-        # Opens a fresh connection to the SQLite file — ⚠️ always call conn.close() after use or the file stays locked
         conn = sqlite3.connect(self.db_path)
         return conn
-    
+
     def init_database(self):
-        # Creates all tables if they don't exist yet — safe to run multiple times on startup
         conn = self.get_connection()
-        cursor = conn.cursor()  # cursor = the "pen" that executes SQL commands
-        
-        # USERS TABLE — stores name, role, email. Role is enforced by CHECK so invalid values are rejected at db level
+        cursor = conn.cursor()
+
+        # USERS TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,10 +25,8 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
-        # EVENTS TABLE — the main table. id has no AUTOINCREMENT so custom IDs can be assigned manually
-        # CHECK constraints on urgency, priority, status mean the db itself rejects invalid values
-        # is_deleted = soft delete flag (1 = deleted, 0 = active) — rows are never truly removed
+
+        # EVENTS TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY,
@@ -69,22 +63,19 @@ class Database:
                 is_deleted INTEGER DEFAULT 0
             )
         ''')
-        
-        # MIGRATION — checks if completion_date column exists and adds it if missing (handles older db versions)
+
+        # MIGRATION — add completion_date if missing
         cursor.execute("PRAGMA table_info(events)")
         columns = [col[1] for col in cursor.fetchall()]
         if 'completion_date' not in columns:
             cursor.execute('ALTER TABLE events ADD COLUMN completion_date DATE')
-            print("✅ Added completion_date column to events table")
 
-        # DATA FIXES — renames old status values from previous versions to current names. Harmless if nothing matches
+        # DATA FIXES
         cursor.execute("UPDATE events SET status = 'הושלם הטיפול' WHERE status = 'טופל'")
         cursor.execute("UPDATE events SET status = 'בבדיקת תחום תכנון' WHERE status = 'בבדיקת תחנתכנון'")
         cursor.execute("UPDATE events SET status = 'בבדיקת תחום תכנון' WHERE status = 'בבדיקת תחנת תכנון'")
 
-        # EVENT FILES TABLE — stores metadata about uploaded files. Actual files live on disk in /uploads/{event_id}/
-        # ON DELETE CASCADE means if an event is deleted, its file records are deleted too
-        # ⚠️ but the physical files on disk are NOT auto-deleted — that's handled manually in app.py
+        # EVENT FILES TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS event_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,8 +87,8 @@ class Database:
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             )
         ''')
-        
-        # STATUS HISTORY TABLE — records every status change over time for an event
+
+        # STATUS HISTORY TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS status_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,8 +100,7 @@ class Database:
             )
         ''')
 
-        # AUDIT LOG TABLE — records every single field change (who changed what, from what value, to what value)
-        # This is what powers the history modal in the frontend
+        # AUDIT LOG TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,8 +114,8 @@ class Database:
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             )
         ''')
-        
-        # EMAIL LOG TABLE — meant to log sent emails. Created but not heavily used in current code
+
+        # EMAIL LOG TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,9 +127,8 @@ class Database:
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             )
         ''')
-        
-        # EMAIL LIST TABLE — list of email addresses that receive notifications
-        # UNIQUE on email prevents duplicates
+
+        # EMAIL LIST TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_list (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,8 +139,7 @@ class Database:
             )
         ''')
 
-        # EMAIL NOTIFICATIONS TABLE — stores per-user notification preferences (0 = off, 1 = on)
-        # One row per user, UNIQUE on user_id prevents duplicates
+        # EMAIL NOTIFICATIONS TABLE
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,23 +153,144 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
-        
-        # DEFAULT ADMIN — if no users exist at all (fresh install), creates a default admin so the app isn't empty
+
+        # EVENT COMMENTS TABLE
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS event_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                comment_text TEXT NOT NULL,
+                author TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+            )
+        ''')
+
+        # USER LAST SEEN TABLE
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_last_seen (
+                user_name TEXT PRIMARY KEY,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # FIELD PERMISSIONS TABLE — per ROLE
+        # Controls which fields each role (admin/planning/development)
+        # can edit. This is the "global" baseline permission layer.
+        # ═══════════════════════════════════════════════════════════
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS field_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role TEXT NOT NULL,
+                field_name TEXT NOT NULL,
+                can_edit INTEGER DEFAULT 1,
+                UNIQUE(role, field_name)
+            )
+        ''')
+
+        cursor.execute('SELECT COUNT(*) FROM field_permissions')
+        if cursor.fetchone()[0] == 0:
+            self._seed_default_permissions(cursor)
+
+        # ═══════════════════════════════════════════════════════════
+        # USER FIELD PERMISSIONS TABLE — per USER
+        # Optional per-user overrides on top of the role permissions.
+        # If a row exists here for a user+field, it takes precedence
+        # over the role-level permission when loading the form.
+        # Admins are always unrestricted — no rows are seeded for them.
+        # ═══════════════════════════════════════════════════════════
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_field_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                field_name TEXT NOT NULL,
+                can_edit INTEGER DEFAULT 1,
+                UNIQUE(user_id, field_name),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+
+        # Seed user_field_permissions from role defaults for any existing
+        # non-admin users that don't yet have per-user rows.
+        self._seed_user_permissions_from_roles(cursor)
+
+        # DEFAULT ADMIN USER — only on a fresh install
         cursor.execute('SELECT COUNT(*) FROM users')
         if cursor.fetchone()[0] == 0:
             cursor.execute('''
                 INSERT INTO users (name, role, email)
                 VALUES ('Admin', 'admin', 'admin@example.com')
             ''')
-        
-        conn.commit()  # saves all the above changes to disk
-        self.populate_email_list()   # auto-syncs user emails into the email_list table
-        self.init_notification_rows() # ensures every user has a notification preferences row
+
+        conn.commit()
+        self.populate_email_list()
+        self.init_notification_rows()
         conn.close()
-    
+
+    def _seed_default_permissions(self, cursor):
+        """
+        Writes the default role-level permission matrix into field_permissions.
+        Called once on first run when the table is empty.
+        """
+        all_fields = [
+            'registrationDate', 'firstContactDate', 'system', 'systemOther',
+            'eventSummary', 'eventDetails', 'affectedCustomers',
+            'urgency', 'priority', 'status', 'statusDetails',
+            'eventClassification', 'statusDeadline', 'completionDate',
+            'responsiblePerson', 'responsiblePersonOther',
+            'priceQuote', 'additionalNotes',
+        ]
+
+        planning_blocked = {
+            'responsiblePerson', 'responsiblePersonOther',
+            'status', 'statusDetails', 'completionDate', 'priceQuote',
+        }
+
+        development_allowed = {
+            'status', 'statusDetails', 'completionDate',
+            'responsiblePerson', 'responsiblePersonOther',
+            'statusDeadline', 'priceQuote', 'additionalNotes', 'eventClassification',
+        }
+
+        rows = []
+        for field in all_fields:
+            rows.append(('admin', field, 1))
+            rows.append(('planning', field, 0 if field in planning_blocked else 1))
+            rows.append(('development', field, 1 if field in development_allowed else 0))
+
+        cursor.executemany(
+            'INSERT OR IGNORE INTO field_permissions (role, field_name, can_edit) VALUES (?, ?, ?)',
+            rows
+        )
+
+    def _seed_user_permissions_from_roles(self, cursor):
+        """
+        For every non-admin user that has no rows yet in user_field_permissions,
+        copies their role's defaults from field_permissions into user_field_permissions.
+        This is called on every startup so newly added users get seeded automatically.
+        """
+        cursor.execute("SELECT id, role FROM users WHERE role != 'admin'")
+        users = cursor.fetchall()
+        for user_id, role in users:
+            cursor.execute(
+                'SELECT COUNT(*) FROM user_field_permissions WHERE user_id = ?',
+                (user_id,)
+            )
+            if cursor.fetchone()[0] == 0:
+                # no per-user rows yet — copy from role defaults
+                cursor.execute(
+                    'SELECT field_name, can_edit FROM field_permissions WHERE role = ?',
+                    (role,)
+                )
+                role_perms = cursor.fetchall()
+                cursor.executemany(
+                    '''INSERT OR IGNORE INTO user_field_permissions (user_id, field_name, can_edit)
+                       VALUES (?, ?, ?)''',
+                    [(user_id, fn, ce) for fn, ce in role_perms]
+                )
+
     def populate_email_list(self):
-        # Copies all user emails into email_list so they appear in notification settings
-        # INSERT OR IGNORE means existing emails are skipped — no duplicates
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
@@ -199,8 +308,6 @@ class Database:
             conn.close()
 
     def init_notification_rows(self):
-        # Creates a notification preferences row for every user that doesn't have one yet
-        # Without this, checking preferences for a new user would crash — no row to read
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
@@ -214,5 +321,32 @@ class Database:
             conn.commit()
         except Exception as e:
             print(f"Error initializing notification rows: {e}")
+        finally:
+            conn.close()
+
+    def seed_new_user_permissions(self, user_id, role):
+        """
+        Called from app.py after a new non-admin user is created.
+        Seeds user_field_permissions from the user's role defaults so the
+        per-user table is immediately populated for that user.
+        """
+        if role == 'admin':
+            return  # admins are always unrestricted — nothing to seed
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'SELECT field_name, can_edit FROM field_permissions WHERE role = ?',
+                (role,)
+            )
+            role_perms = cursor.fetchall()
+            cursor.executemany(
+                '''INSERT OR IGNORE INTO user_field_permissions (user_id, field_name, can_edit)
+                   VALUES (?, ?, ?)''',
+                [(user_id, fn, ce) for fn, ce in role_perms]
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"Error seeding user permissions: {e}")
         finally:
             conn.close()
