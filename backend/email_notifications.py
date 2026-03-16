@@ -48,7 +48,7 @@ SMTP_CONFIG = {
     "port":       587,    # 587 = STARTTLS (most common), 465 = SSL, 25 = plain
     "use_tls":    True,   # True for port 587 (STARTTLS) — upgrades connection to encrypted after connecting
     "use_ssl":    False,  # True for port 465 (SSL) — encrypted from the start. Set use_tls=False if using this
-    "from_name":  "מערכת מעקב ופיתוח — גאודה",  # display name shown in the From field of the email
+    "from_name":  "מערכת ניהול בעיות — גאודה",  # display name shown in the From field of the email
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
