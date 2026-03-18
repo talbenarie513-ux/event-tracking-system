@@ -5,30 +5,31 @@
 
 ## 📋 תיאור המערכת / System Description
 
-**אפליקציית שולחן עבודה עצמאית** לניהול ומעקב אחר אירועים, תקלות ופניות פיתוח.
+אפליקציית ווב לניהול ומעקב אחר אירועים, תקלות ופניות פיתוח.
+המערכת רצה על מחשב שרת אחד — משתמשים אחרים מתחברים דרך הדפדפן.
 
-המערכת נפתחת **בחלון נפרד** (לא בדפדפן!) ועובדת לחלוטין ללא אינטרנט.
-
-A standalone desktop application (not a website!) for tracking bugs and development requests.
+A web-based application for tracking bugs and development requests.
+Runs on one server machine — other users connect via browser.
 
 ---
 
 ## 🎯 תכונות עיקריות / Key Features
 
-- ✅ ניהול אירועים מלא (יצירה, עריכה, מחיקה)
+- ✅ ניהול אירועים מלא (יצירה, עריכה, מחיקה רכה ושחזור)
 - ✅ 3 רמות הרשאות: אדמין, תכנון, פיתוח
+- ✅ הרשאות שדות לפי תפקיד ולפי משתמש בנפרד
 - ✅ מעקב אחר סטטוס ולו"ז
 - ✅ התראות על איחורים
-- ✅ העלאת קבצים
-- ✅ ניתוח נתונים וגרפים
+- ✅ העלאת קבצים עם תצוגה מקדימה
+- ✅ ניתוח נתונים וגרפים (אדמין בלבד)
 - ✅ ייצוא דוחות Excel
-- ✅ ניהול רשימת תפוצה
-- ✅ עובד ללא אינטרנט (מקומי)
-- ✅ **נפתח בחלון נפרד - לא בדפדפן!**
-- ✅ ממשק מהיר ונוח לשימוש יומיומי
 - ✅ יומן שינויים מלא (Audit Log) לכל אירוע
-- ✅ מדריך למשתמש מובנה (כפתור ? בראש המסך)
+- ✅ הערות פנימיות לכל אירוע
+- ✅ התראות אימייל (חמישה סוגי התראות)
 - ✅ תמיכה במשתמשים מרובים דרך רשת פנימית
+- ✅ ממשק עברי RTL
+- ✅ עובד ללא אינטרנט (מקומי)
+- ✅ מדריך למשתמש מובנה (כפתור ? בראש המסך)
 
 ---
 
@@ -44,15 +45,21 @@ A standalone desktop application (not a website!) for tracking bugs and developm
   - קל להעתקה וגיבוי (קובץ אחד)
   - מהיר ויעיל
   - עובד לחלוטין ללא חיבור לאינטרנט
-  
-- **טבלאות עיקריות**:
-  - `users` - משתמשים והרשאות
-  - `events` - אירועים ותקלות
-  - `event_files` - קבצים מצורפים
-  - `status_history` - היסטוריית שינויי סטטוס
-  - `audit_log` - יומן שינויים מלא לכל שדה
-  - `email_list` - רשימת תפוצה
-  - `email_notifications` - העדפות התראות לכל משתמש
+
+> ⚠️ יש שני קבצי `event_system.db` — אחד ב-root ואחד ב-`backend/`. שניהם קיימים וזה בסדר. המערכת משתמשת בזה שב-`backend/`. אם תעביר לשרת חדש, `install.ps1` יעביר את זה שב-root ל-`backend/` אוטומטית אם צריך.
+
+**טבלאות עיקריות**:
+- `users` — משתמשים והרשאות
+- `events` — אירועים ותקלות
+- `event_files` — קבצים מצורפים
+- `status_history` — היסטוריית שינויי סטטוס
+- `audit_log` — יומן שינויים מלא לכל שדה
+- `event_comments` — הערות פנימיות
+- `field_permissions` — הרשאות שדות לפי תפקיד
+- `user_field_permissions` — הרשאות שדות לפי משתמש
+- `email_notifications` — העדפות התראות לכל משתמש
+- `email_list` — רשימת תפוצה
+- `user_last_seen` — מעקב כניסה אחרונה
 
 ---
 
@@ -69,191 +76,147 @@ event-management-system/
 │   ├── app.py                        # Flask API — all routes and endpoints
 │   ├── database.py                   # Database manager — creates and manages all tables
 │   ├── email_notifications.py        # Email sending logic and scheduled jobs
-│   ├── event_system.db               # SQLite database file — contains all data (auto-created)
-│   ├── fix_database.py               # One-time utility to wipe and re-import data from Excel
-│   ├── import_excel.py               # Imports existing data from an Excel file into the database
+│   ├── event_system.db               # ⭐ SQLite database — the real one used by the system
 │   └── reports.py                    # Generates formatted Excel reports
 │
 ├── venv/                             # Virtual environment (created during setup)
 │
 ├── app.js                            # Frontend JavaScript — all UI logic and API calls
 ├── index.html                        # Main UI — the full single-page interface
-├── main.py                           # ⭐ SERVER launcher — starts Flask + opens desktop window
-├── launcher.py                       # ⭐ CLIENT launcher — opens desktop window pointed at server
+├── main.py                           # ⭐ Server launcher — starts Flask
+├── event_system.db                   # Root-level DB copy (both are fine — see note above)
+├── install.ps1                       # ⭐ Full installation logic (run by START_INSTALL.bat)
+├── START_INSTALL.bat                 # ⭐ Double-click to install everything on a new server
+├── Run_App.bat                       # ⭐ Double-click to start the server after installation
 ├── README.md                         # This file
-├── requirements.txt                  # Python package dependencies
-├── Run_App.bat                       # ⭐ SERVER: double-click to start the server
-├── build.bat                         # Builds the SERVER into a standalone .exe
-└── build_client.bat                  # ⭐ CLIENT: builds the client launcher into a .exe to send to users
+└── requirements.txt                  # Python package dependencies
 ```
 
 > ⚠️ **הערה:** כל הקבצים המצורפים נשמרים בתוך `backend/uploads/` — לא בתיקיית ה-root.
 
 ---
 
-## 🚀 התקנה ראשונית / Initial Setup
+פלת בזה
 
-### שלב 1: הורד את הקבצים
+### שלב 1 — העתק את הפרויקט
+העתק את כל תיקיית הפרויקט למחשב השרת החדש.
+**אל תעתיק את תיקיית `venv/`** — היא תיווצר מחדש אוטומטית.
 
-**אופציה א': דרך Git**
-```bash
-git clone https://github.com/YOUR_ORGANIZATION/event-management-system.git
-cd event-management-system
+### שלב 2 — הרץ את ההתקנה
+לחץ פעמיים על **`START_INSTALL.bat`**
+
+הסקריפט עושה הכל אוטומטית:
+1. מוריד ומתקין **Python 3.13.9** אם לא קיים (או אם הגרסה שגויה)
+2. יוצר **venv** ומפעיל אותו
+3. מתקין את כל **requirements.txt**
+4. בודק אם יש `event_system.db` ב-root — מעביר ל-`backend/` אם צריך
+5. יוצר תיקיית **uploads/** אם לא קיימת
+6. פותח **פורט 5000** בחומת האש
+7. מזהה את **ה-IP** אוטומטית ומעדכן `app.js`
+8. מפעיל את השרת לאחר ההתקנה
+
+### שלב 3 — גישה מהרשת
+לאחר ההתקנה, משתמשים אחרים מתחברים דרך הדפדפן:
 ```
-
-**אופציה ב': הורד ZIP**
-- הורד את כל הקבצים
-- חלץ לתיקייה במחשב
-- פתח את התיקייה
-
-### שלב 2: ודא שיש Python
-
-```bash
-python --version
+http://SERVER_IP:5000
 ```
-
-אם אין Python, הורד מ: https://www.python.org/downloads/
-
-### שלב 3: התקן את התלויות
-
-```bash
-python -m venv venv
-
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### שלב 4: אתחל את בסיס הנתונים
-
-```bash
-cd backend
-python database.py
-```
-
-### שלב 5: (אופציונלי) ייבא נתונים קיימים
-
-```bash
-python import_excel.py
-```
+אין צורך ב-.exe, אין צורך בהתקנה אצל המשתמשים — רק דפדפן.
 
 ---
 
 ## 🎮 הפעלת המערכת / Running the System
 
 ### ⭐ הדרך הפשוטה ביותר:
+לחץ פעמיים על **`Run_App.bat`**
 
-**לחץ פעמיים על: `Run_App.bat`**
+### או מה-CMD:
+```cmd
+cd C:\path\to\project
+venv\Scripts\activate
+python main.py
+```
+
+> 💡 **למה לא לחץ פעמיים על main.py?**
+> כי double-click פותח את הקובץ לעריכה — לא מריץ אותו בסביבה הנכונה.
+> `Run_App.bat` מפעיל את ה-venv ואז מריץ את main.py בצורה הנכונה.
 
 ---
 
 ## 🌐 שימוש עם מספר משתמשים / Multi-User Setup
 
 המערכת תומכת במספר משתמשים בו-זמנית דרך רשת פנימית (LAN/WiFi משרדי).
-יש מחשב אחד שמשמש **שרת** — שאר המשתמשים מתחברים אליו.
+יש מחשב אחד שמשמש **שרת** — שאר המשתמשים מתחברים דרך הדפדפן.
 
 ### איך זה עובד
 
 ```
 SERVER MACHINE                    CLIENT MACHINES
 ──────────────────                ──────────────────────────
-Run_App.bat                       EventManagementSystem.exe
+Run_App.bat                       Any browser
       │                                     │
-Flask on port 5000                 pywebview window
-      │                                     │
-event_system.db          ◄─── HTTP ─────────┘
-backend/uploads/            192.168.1.XXX:5000
+Flask on port 5000       ◄─── HTTP ─────────┘
+      │                     http://192.168.1.XXX:5000
+event_system.db
+backend/uploads/
 ```
 
 - ה**שרת** מריץ את Flask, מחזיק את הדאטהבייס וכל הקבצים
-- כל **משתמש** פותח חלון דסקטופ שמתחבר לשרת דרך הרשת
+- כל **משתמש** פותח דפדפן ומנווט לכתובת ה-IP של השרת
 - אם השרת כבוי — אף אחד לא יכול להיכנס
 
 ---
 
-### שלב 1 — הגדר את השרת
+## 🔧 שינוי פורט / Changing the Port
 
-על מחשב השרת, הרץ `ipconfig` ב-CMD ואתר את **IPv4 Address**:
-```
-IPv4 Address: 192.168.1.XXX   ← זה ה-IP שתצטרך
-```
+אם פורט 5000 תפוס, שנה ב-**5 מקומות**:
 
-ודא שפורט 5000 פתוח בחומת האש:
-```bat
-netsh advfirewall firewall add rule name="EventSystem" dir=in action=allow protocol=TCP localport=5000
-```
-
-הרץ את השרת:
-```bat
-Run_App.bat
-```
-
----
-
-### שלב 2 — עדכן את כתובת השרת ב-app.js
-
-פתח את `app.js` ועדכן את **שורה 1**:
-```javascript
-// לפני:
-const API_URL = 'http://localhost:5000/api';
-
-// אחרי — החלף עם ה-IP האמיתי של השרת:
-const API_URL = 'http://192.168.1.XXX:5000/api';
-```
-
-> ⚠️ שלב זה חובה — בלעדיו המשתמשים יראו את הממשק אך לא יוכלו לטעון נתונים
-
----
-
-### שלב 3 — בנה את ה-.exe ללקוחות
-
-#### launcher.py
-קובץ זה רץ על מחשב **המשתמש** (לא השרת).
-הוא פותח חלון דסקטופ שמתחבר לשרת — ללא Flask, ללא דאטהבייס.
-
-לפני הבנייה, ערוך את `launcher.py` ועדכן את ה-IP:
-```python
-SERVER_URL = 'http://192.168.1.XXX:5000'  # ← שנה ל-IP האמיתי
-```
-
-#### build_client.bat
-קובץ זה בונה את `launcher.py` לקובץ `.exe` שאפשר לשלוח לכל משתמש.
-מריצים אותו **פעם אחת בלבד** על מחשב השרת:
-
-```bat
-build_client.bat
-```
-
-התוצאה תופיע ב:
-```
-dist\EventManagementSystem\
-└── EventManagementSystem.exe   ← זה מה שמשלחים למשתמשים
-```
-
----
-
-### שלב 4 — שלח למשתמשים
-
-1. **דחוס** את התיקייה `dist\EventManagementSystem\` לקובץ ZIP
-2. **שלח** את ה-ZIP לכל משתמש
-3. המשתמש **מחלץ** את התיקייה לכל מקום במחשב שלו
-4. המשתמש **לוחץ פעמיים** על `EventManagementSystem.exe` — זהו!
-
-> ✅ אין צורך ב-Python, אין התקנות, אין הגדרות — רק לפתוח את ה-.exe
-
----
-
-### ⚠️ דגשים חשובים למולטי-יוזר
-
-| נושא | פרטים |
+| קובץ | מה לשנות |
 |---|---|
-| השרת חייב לרוץ | לפני שמשתמש פותח את ה-.exe, השרת חייב לרוץ |
-| אותה רשת | כל המשתמשים חייבים להיות באותה רשת (LAN/WiFi משרדי) |
-| שינוי IP | אם ה-IP של השרת השתנה — יש לעדכן `launcher.py` ולבנות מחדש |
-| שליחת תיקייה שלמה | יש לשלוח את כל התיקייה `EventManagementSystem\` ולא רק את ה-.exe |
+| `main.py` | `app.run(host='0.0.0.0', port=5000, ...)` |
+| `main.py` | `requests.get('http://127.0.0.1:5000/api/files/...')` |
+| `main.py` | `requests.get('http://127.0.0.1:5000/api/reports/excel')` |
+| `app.js` | `const API_URL = 'http://localhost:5000/api'` |
+| `install.ps1` | `-LocalPort 5000` (firewall rule) |
+
+**דוגמה — מעבר לפורט 5001:**
+```python
+# main.py
+app.run(host='0.0.0.0', port=5001, ...)
+requests.get('http://127.0.0.1:5001/api/files/...')
+requests.get('http://127.0.0.1:5001/api/reports/excel')
+```
+```javascript
+// app.js
+const API_URL = 'http://localhost:5001/api';
+```
+```powershell
+# install.ps1
+-LocalPort 5001
+```
+
+---
+
+## 🌍 שינוי כתובת IP של השרת / Changing the Server IP
+
+אם ה-IP של השרת השתנה, שנה ב-**מקום אחד בלבד**:
+
+| קובץ | מה לשנות |
+|---|---|
+| `app.js` | `const API_URL = 'http://OLD_IP:5000/api'` → `'http://NEW_IP:5000/api'` |
+
+> 💡 `install.ps1` מזהה ומעדכן את ה-IP **אוטומטית** בכל הרצה — כך שאם תריץ שוב את `START_INSTALL.bat` על השרת החדש, הוא יעדכן את `app.js` בעצמו.
+
+**עדכון ידני אם צריך:**
+```javascript
+// app.js — שורה 1
+const API_URL = 'http://192.168.1.XXX:5000/api';  // החלף XXX בIP האמיתי
+```
+
+**כיצד למצוא את ה-IP של השרת:**
+```cmd
+ipconfig
+```
+חפש **IPv4 Address** — לדוגמה: `192.168.1.105`
 
 ---
 
@@ -275,44 +238,21 @@ index.html
 app.js
 main.py
 requirements.txt
+install.ps1
+START_INSTALL.bat
 Run_App.bat
-launcher.py
-build_client.bat
 ```
 
-### שלב 2 — התקן Python והתלויות בשרת החדש
-```bat
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
+> ⚠️ **אל תעתיק** את `venv/` — היא תיווצר מחדש ע"י `START_INSTALL.bat`
 
-### שלב 3 — עדכן IP ב-app.js ו-launcher.py
-```javascript
-// app.js שורה 1:
-const API_URL = 'http://NEW_SERVER_IP:5000/api';
-```
-```python
-# launcher.py:
-SERVER_URL = 'http://NEW_SERVER_IP:5000'
-```
-
-### שלב 4 — פתח פורט 5000 בחומת האש
-```bat
-netsh advfirewall firewall add rule name="EventSystem" dir=in action=allow protocol=TCP localport=5000
-```
-
-### שלב 5 — בנה .exe חדש ושלח למשתמשים
-```bat
-build_client.bat
-```
-אחרי הבנייה — שלח את `dist\EventManagementSystem\` לכל המשתמשים מחדש.
+### שלב 2 — הרץ את ההתקנה על השרת החדש
+לחץ פעמיים על `START_INSTALL.bat` — הכל אוטומטי כולל עדכון ה-IP.
 
 ---
 
 ## 👥 ניהול משתמשים / User Management
 
-### משתמש ברירת מחדל:
+### משתמש ברירת מחדל (התקנה חדשה):
 - **שם**: Admin
 - **תפקיד**: אדמין
 - **אימייל**: admin@example.com
@@ -347,7 +287,6 @@ build_client.bat
 - טבלת הרשאות לפי תפקיד
 - הסבר על כל שדה בטופס
 - רשימת הסטטוסים
-- טיפים לשימוש
 
 ### תכונות עיקריות
 - **חיפוש חופשי** — לפי תמצית, מערכת, פירוט או לקוח
@@ -362,7 +301,7 @@ build_client.bat
 
 ---
 
-## 🔄 סטטוסים אפשריים
+## 🔄 סטטוסים אפשריים / Event Statuses
 
 | סטטוס | משמעות |
 |---|---|
@@ -387,37 +326,26 @@ build_client.bat
 - ניתן לצפות בהיסטוריה המלאה דרך כפתור **📜 היסטוריה** בחלון הפרטים
 - פעולות מעוקבות: יצירה, עדכון, מחיקה, שחזור
 
-### 🪵 יומן שגיאות (Error Log)
-כל שגיאת שרת נכתבת אוטומטית לקובץ:
-```
-backend/logs/app.log
-```
-
 ### 📧 התראות אימייל
+לפני שליחת מיילים, ערוך את `backend/email_notifications.py`:
+```python
+SMTP_CONFIG = {
+    "host":       "mail.geoda.co.il",    # כתובת שרת המייל
+    "from_email": "noreply@geoda.co.il", # כתובת השולח
+    "username":   "noreply@geoda.co.il", # שם משתמש
+    "password":   "YOUR_PASSWORD",       # סיסמה
+    "port":       587,
+    "use_tls":    True,
+}
+```
+כל עוד השדות ריקים — המערכת רצה ב**stub mode** (מיילים מודפסים לקונסול בלבד).
+
+סוגי התראות:
 - שינוי סטטוס
 - יצירת אירוע חדש
 - הקצאת גורם אחראי
 - אירועים באיחור (יומי — 08:00)
 - דוח שבועי (ראשון — 08:00)
-
----
-
-## 📦 בניית קובץ התקנה / Building .exe Files
-
-### בניית .exe לשרת
-```bat
-build.bat
-```
-התוצאה: `dist\EventManagementSystem\EventManagementSystem.exe`
-
-### בניית .exe ללקוחות
-```bat
-build_client.bat
-```
-התוצאה: `dist\EventManagementSystem\EventManagementSystem.exe`
-
-> ⚠️ שני הקבצים מייצרים תיקייה בשם `EventManagementSystem` — הרץ אותם בנפרד
-> ויש לשתף את **כל התיקייה** ולא רק את ה-.exe
 
 ---
 
@@ -430,21 +358,19 @@ backend/event_system.db      ← כל הנתונים
 backend/uploads/             ← קבצים מועלים
 ```
 
-```bash
+```cmd
 copy backend\event_system.db backup\event_system_%date%.db
 xcopy backend\uploads backup\uploads /E /I
 ```
 
 ### שחזור מגיבוי
-אם משהו השתבש ויש צורך לחזור לגיבוי קודם:
-
 1. **עצור את השרת** — סגור את חלון `Run_App.bat`
 2. **החלף את קובץ הדאטהבייס:**
-```bash
+```cmd
 copy backup\event_system_DATE.db backend\event_system.db
 ```
 3. **החלף את תיקיית הקבצים המצורפים (אם צריך):**
-```bash
+```cmd
 xcopy backup\uploads backend\uploads /E /I /Y
 ```
 4. **הפעל מחדש את השרת** — הרץ `Run_App.bat`
@@ -453,182 +379,21 @@ xcopy backup\uploads backend\uploads /E /I /Y
 
 ---
 
-## מבנה מערכת
+## ⚠️ מגבלות ואבטחה ידועות / Known Limitations & Security
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                               USER OPENS APP                                 │
-│              (double-clicks EventManagementSystem.exe)                       │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                    ┌─────────────────┴──────────────────┐
-                    │                                    │
-             SERVER MACHINE                     CLIENT MACHINES
-             main.py → Flask                    launcher.py
-             port 5000                          pywebview window
-                    │                                    │
-                    └─────────────── HTTP ───────────────┘
-                                192.168.1.XXX:5000
-                                      │
-                                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         FRONTEND (index.html + app.js)                       │
-│  Functions: loadUsers(), loadEventsReadOnly(), openNewEventModal(),          │
-│             openEditModal(), saveEvent(), deleteEvent(), uploadFile()...     │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-                               GET /api/users
-                                      │
-                                      ▼
-┌─────────────────────────────── ROLE DECISION ────────────────────────────────┐
-│                                                                              │
-│     Development (status + files only)                                        │
-│     Planning (create/edit/delete)                                            │
-│     Admin (full access)                                                      │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-                               GET /api/events
-                                      │
-                                      ▼
-┌──────────────────────────────── MAIN DASHBOARD ──────────────────────────────┐
-│  • Event table                                                               │
-│  • Filter / Search                                                           │
-│  • My Events toggle                                                          │
-│  • Click row → Event Detail                                                  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-## סרטוט מערכת 
-## 🗺️ מבנה וקשרי הקבצים במערכת
+### 🔑 אין מערכת התחברות (Login)
+המערכת **אינה מוגנת בסיסמה**. בחירת המשתמש מהרשימה מבוססת על אמון בלבד. יש לוודא שהרשת הפנימית מאובטחת וש הגישה לשרת מוגבלת לאנשים מורשים.
 
-═══════════════════════════════════════════════════════════════════
-                        הפעלת המערכת
-═══════════════════════════════════════════════════════════════════
+### 🔐 סיסמת אימייל בטקסט גלוי
+בקובץ `backend/email_notifications.py`, הסיסמה נשמרת ישירות בקוד.
+- אל תשתמש בסיסמה ראשית של החברה — צור סיסמת אפליקציה ייעודית
+- שמור את קבצי הקוד פרטיים
 
-  Run_App.bat
-       │
-       ▼
-  main.py  ──────────────────────────────────────────────────────┐
-  (מרכז השליטה)                                                   │
-       │                                                          │
-       ├── מפעיל Flask בthread נפרד                              │
-       ├── מפעיל email scheduler                                  │
-       └── פותח חלון pywebview ──► http://127.0.0.1:5000         │
-                                                                  │
-═══════════════════════════════════════════════════════════════════
-                      שרת Flask (Backend)
-═══════════════════════════════════════════════════════════════════
-                                                                  │
-  backend/app.py  ◄─────────────────────────────────────────────┘
-  (כל ה-API Routes)
-       │
-       ├── /api/events         ── CRUD אירועים
-       ├── /api/users          ── ניהול משתמשים
-       ├── /api/files          ── העלאה/הורדה/תצוגה
-       ├── /api/permissions    ── הרשאות לפי תפקיד
-       ├── /api/user-permissions ── הרשאות לפי משתמש
-       ├── /api/stats          ── סטטיסטיקות
-       ├── /api/reports/excel  ── הפקת דוח
-       └── /api/comments       ── הערות פנימיות
-            │
-            ├──► backend/database.py
-            │    (מנהל SQLite — יוצר טבלאות, מאתחל הרשאות)
-            │         │
-            │         └──► backend/event_system.db  ◄── כל הנתונים
-            │              ┌─────────────────────────────────┐
-            │              │  users                          │
-            │              │  events                         │
-            │              │  event_files                    │
-            │              │  audit_log                      │
-            │              │  status_history                 │
-            │              │  event_comments                 │
-            │              │  field_permissions              │
-            │              │  user_field_permissions         │
-            │              │  email_notifications            │
-            │              │  user_last_seen                 │
-            │              │  email_list                     │
-            │              └─────────────────────────────────┘
-            │
-            ├──► backend/email_notifications.py
-            │    (שליחת מיילים + Scheduler)
-            │    ├── trigger_new_event()        ── נקרא מ-app.py בעת יצירת אירוע
-            │    ├── trigger_status_change()    ── נקרא מ-app.py בעת עדכון סטטוס
-            │    ├── trigger_responsible_assigned() ── נקרא מ-app.py בעת הקצאת אחראי
-            │    ├── send_overdue_notifications() ── Scheduler: כל יום 08:00
-            │    └── send_weekly_report()       ── Scheduler: כל ראשון 08:00
-            │              │
-            │              └──► backend/reports.py
-            │                   (בונה קובץ Excel עם xlsxwriter)
-            │                   └── generate_excel_report()
-            │                       ├── נקרא מ-app.py (כפתור "הפקת דוח")
-            │                       └── נקרא מ-email_notifications.py (דוח שבועי)
-            │
-            └──► backend/uploads/
-                 (קבצים מצורפים — מאורגנים לפי event_id)
-                 └── uploads/{event_id}/{timestamp}_{filename}
+### 🔢 סיכון כפל מזהים (Duplicate ID)
+אם שני משתמשים יוצרים אירוע באותה שנייה בדיוק, שניהם עלולים לקבל את אותו ה-ID. נדיר בצוות קטן.
 
-═══════════════════════════════════════════════════════════════════
-                     ממשק המשתמש (Frontend)
-═══════════════════════════════════════════════════════════════════
-
-  index.html  ◄── נטען מהשרת על ידי הדפדפן / pywebview
-  (כל ה-HTML + CSS של הממשק)
-       │
-       └── טוען ──► app.js
-                    (כל לוגיקת הלקוח)
-                    ├── loadUsers()              ── /api/users
-                    ├── loadEvents()             ── /api/events
-                    ├── handleEventSubmit()      ── /api/events POST/PUT
-                    ├── openFile() / downloadFile() ── /api/files
-                    ├── loadPermissions()        ── /api/user-permissions
-                    ├── showAnalysisModal()      ── Chart.js גרפים
-                    ├── generateReport()         ── /api/reports/excel
-                    └── showAdminPanel()         ── ניהול משתמשים/הרשאות
-
-═══════════════════════════════════════════════════════════════════
-                 משתמשי רשת (Multi-User)
-═══════════════════════════════════════════════════════════════════
-
-  build_client.bat
-       │
-       ▼
-  launcher.py  ──► EventManagementSystem.exe
-  (נשלח לכל משתמש)      (חלון pywebview)
-       │                       │
-       └───────────────────────┘
-                    │
-                    │  HTTP (רשת פנימית)
-                    ▼
-             192.168.1.XXX:5000
-             (שרת Flask על מחשב השרת)
-
-═══════════════════════════════════════════════════════════════════
-              כלי עזר חד-פעמיים (One-time utilities)
-═══════════════════════════════════════════════════════════════════
-
-  fix_database.py
-  ├── מוחק את כל הנתונים
-  └── קורא ל-import_excel.py
-
-  import_excel.py
-  └── קורא מקובץ Excel ומכניס נתונים ל-event_system.db
-      (מדלג על ID כפולים — בטוח להרצה על DB קיים)
-
-═══════════════════════════════════════════════════════════════════
-              תלויות Python (requirements.txt)
-═══════════════════════════════════════════════════════════════════
-
-  Flask          ── שרת ה-API
-  flask-cors     ── מאפשר גישת CORS
-  openpyxl       ── קריאת/כתיבת .xlsx
-  xlsxwriter     ── יצירת דוחות Excel
-  xlrd           ── קריאת .xls ישן
-  python-docx    ── קריאת .docx
-  pywebview      ── חלון דסקטופ
-  apscheduler    ── Scheduler לתזכורות מייל
-  Werkzeug       ── כלי עזר ל-Flask
-  requests       ── HTTP מ-DownloadAPI ב-main.py
+### 📊 מגבלות SQLite
+מתאים לצוותים קטנים (עד ~20 משתמשים במקביל). לצוות גדול — שקול מעבר ל-PostgreSQL.
 
 ---
 
@@ -636,13 +401,23 @@ xcopy backup\uploads backend\uploads /E /I /Y
 
 | בעיה | פתרון |
 |---|---|
-| "Python לא מוכר" | התקן Python + סמן "Add to PATH" |
-| "Module not found" | `pip install -r requirements.txt` |
-| "Port 5000 in use" | שנה ל-`port=5001` ב-app.py |
-| לא מצליח להתחבר מרחוק | בדוק חומת אש, IP ב-app.js ו-launcher.py, Port 5000 פתוח |
-| משתמש רואה דף ריק | השרת לא רץ — הרץ `Run_App.bat` על מחשב השרת |
+| Python לא נמצא | `START_INSTALL.bat` מתקין אוטומטית |
+| "Module not found" | הרץ שוב את `START_INSTALL.bat` |
+| "Port 5000 in use" | שנה פורט ב-5 המקומות המפורטים למעלה |
+| משתמש רואה דף ריק | השרת לא רץ — הרץ `Run_App.bat` |
+| לא מצליח להתחבר מרחוק | בדוק IP ב-`app.js`, ופורט 5000 פתוח בחומת האש |
 | שדות חסומים לאדמין | רענן את הדף ובחר שוב את המשתמש |
-| ה-.exe של הלקוח נפתח אך אין נתונים | עדכן את SERVER_URL ב-`launcher.py` ובנה מחדש |
+
+### ⚠️ דגשים חשובים למולטי-יוזר
+
+| נושא | פרטים |
+|---|---|
+| השרת חייב לרוץ | לפני שמשתמש פותח את הדפדפן, השרת חייב לרוץ |
+| אותה רשת | כל המשתמשים חייבים להיות באותה רשת (LAN/WiFi משרדי) |
+| שינוי IP | אם ה-IP של השרת השתנה — יש לעדכן `app.js` ולהפעיל מחדש |
+| גישה מבחוץ | המערכת מיועדת לרשת פנימית בלבד — לא לגישה מהאינטרנט |
+
+---
 
 ### כיצד לבדוק אם השרת פועל
 
@@ -660,83 +435,116 @@ http://SERVER_IP:5000
 
 ---
 
-## ⚠️ מגבלות ואבטחה ידועות / Known Limitations & Security
+## 🗺️ מבנה וקשרי הקבצים במערכת / System Architecture
 
-### 🔑 אין מערכת התחברות (Login)
-המערכת **אינה מוגנת בסיסמה**. כל מי שפותח את ה-.exe ונמצא באותה רשת יכול להיכנס ולהתחזות לכל משתמש — בחירת המשתמש מהרשימה מבוססת על אמון בלבד, לא אימות אמיתי. יש לוודא שה-.exe מופץ רק לאנשים מורשים ושהרשת הפנימית מאובטחת.
-
-### 🔐 סיסמת אימייל בטקסט גלוי
-בקובץ `backend/email_notifications.py`, סיסמת ה-SMTP נשמרת ישירות בקוד:
-```python
-SMTP_CONFIG = {
-    "password": "YOUR_PASSWORD_HERE",  # ← כל מי שיש לו גישה לקוד יכול לראות את הסיסמה
-}
 ```
-**מה לעשות:**
-- אל תשתמש בסיסמה ראשית של החברה — צור סיסמת אפליקציה ייעודית
-- שמור את קבצי הקוד פרטיים ואל תעלה אותם ל-GitHub ציבורי
-- בגרסה עתידית ניתן לעבור למשתני סביבה (environment variables) במקום טקסט גלוי
+═══════════════════════════════════════════════════════════════════
+                        הפעלת המערכת
+═══════════════════════════════════════════════════════════════════
 
-### 🔢 סיכון כפל מזהים (Duplicate ID)
-בקובץ `backend/app.py`, הפונקציה `get_next_available_id()` מוצאת את ה-ID הגבוה ביותר ומוסיפה 1.
-אם שני משתמשים יוצרים אירוע **באותה שנייה בדיוק**, שניהם יקבלו את אותו ה-ID ואחד מהם ייכשל.
-זה נדיר בצוות קטן אך כדאי לדעת שזה קיים.
+  START_INSTALL.bat  (פעם אחת בלבד — שרת חדש)
+       │
+       ▼
+  install.ps1
+  ├── Python 3.13.9
+  ├── venv + requirements.txt
+  ├── מעביר event_system.db ל-backend/ אם צריך
+  ├── פותח פורט 5000
+  └── מזהה IP ומעדכן app.js
+       │
+       ▼
+  Run_App.bat  (כל פעם שרוצים להפעיל)
+       │
+       ▼
+  main.py
+  ├── מפעיל Flask בthread נפרד (port 5000, host 0.0.0.0)
+  └── מפעיל email scheduler
 
-### 📊 מגבלות SQLite
-SQLite מתאים לצוותים קטנים (עד ~20 משתמשים במקביל). הוא אינו מתוכנן לכתיבות רבות בו-זמנית. אם המערכת תגדל לצוות גדול — מומלץ לשקול מעבר ל-PostgreSQL או MySQL.
+═══════════════════════════════════════════════════════════════════
+                      שרת Flask (Backend)
+═══════════════════════════════════════════════════════════════════
+
+  backend/app.py  (כל ה-API Routes)
+       │
+       ├── /api/events         ── CRUD אירועים
+       ├── /api/users          ── ניהול משתמשים
+       ├── /api/files          ── העלאה/הורדה/תצוגה
+       ├── /api/permissions    ── הרשאות לפי תפקיד
+       ├── /api/user-permissions ── הרשאות לפי משתמש
+       ├── /api/stats          ── סטטיסטיקות
+       ├── /api/reports/excel  ── הפקת דוח
+       └── /api/comments       ── הערות פנימיות
+            │
+            ├──► backend/database.py
+            │         └──► backend/event_system.db
+            │              ┌─────────────────────────────────┐
+            │              │  users                          │
+            │              │  events                         │
+            │              │  event_files                    │
+            │              │  audit_log                      │
+            │              │  status_history                 │
+            │              │  event_comments                 │
+            │              │  field_permissions              │
+            │              │  user_field_permissions         │
+            │              │  email_notifications            │
+            │              │  user_last_seen                 │
+            │              │  email_list                     │
+            │              └─────────────────────────────────┘
+            │
+            ├──► backend/email_notifications.py
+            │    ├── trigger_new_event()        ── נקרא מ-app.py בעת יצירת אירוע
+            │    ├── trigger_status_change()    ── נקרא מ-app.py בעת עדכון סטטוס
+            │    ├── trigger_responsible_assigned() ── נקרא מ-app.py בעת הקצאת אחראי
+            │    ├── send_overdue_notifications() ── Scheduler: כל יום 08:00
+            │    └── send_weekly_report()       ── Scheduler: כל ראשון 08:00
+            │              └──► backend/reports.py
+            │                   └── generate_excel_report()
+            │                       ├── נקרא מ-app.py (כפתור "הפקת דוח")
+            │                       └── נקרא מ-email_notifications.py (דוח שבועי)
+            │
+            └──► backend/uploads/
+                 └── uploads/{event_id}/{timestamp}_{filename}
+
+═══════════════════════════════════════════════════════════════════
+                     ממשק המשתמש (Frontend)
+═══════════════════════════════════════════════════════════════════
+
+  משתמשים מתחברים דרך דפדפן: http://SERVER_IP:5000
+       │
+       ▼
+  index.html  (כל ה-HTML + CSS של הממשק)
+       │
+       └── טוען ──► app.js
+                    ├── loadUsers()              ── /api/users
+                    ├── loadEvents()             ── /api/events
+                    ├── handleEventSubmit()      ── /api/events POST/PUT
+                    ├── openFile() / downloadFile() ── /api/files
+                    ├── loadPermissions()        ── /api/user-permissions
+                    ├── showAnalysisModal()      ── Chart.js גרפים
+                    ├── generateReport()         ── /api/reports/excel
+                    └── showAdminPanel()         ── ניהול משתמשים/הרשאות
+
+═══════════════════════════════════════════════════════════════════
+              תלויות Python (requirements.txt)
+═══════════════════════════════════════════════════════════════════
+
+  Flask          ── שרת ה-API
+  flask-cors     ── מאפשר גישת CORS
+  openpyxl       ── קריאת/כתיבת .xlsx
+  xlsxwriter     ── יצירת דוחות Excel
+  xlrd           ── קריאת .xls ישן
+  python-docx    ── קריאת .docx
+  pywebview      ── (נשמר ב-requirements, לא בשימוש פעיל)
+  apscheduler    ── Scheduler לתזכורות מייל
+  Werkzeug       ── כלי עזר ל-Flask
+  requests       ── HTTP מ-main.py
+```
 
 ---
-
-## ⚠️ נתיבים קשיחים בקוד / Hardcoded Paths
-
-שני קבצים מכילים נתיבים מוחלטים שמצביעים למחשב הפיתוח המקורי.
-אם תריץ אותם ללא עדכון — הם יכשלו עם שגיאת "file not found".
-
-Two files contain absolute paths pointing to the original development machine.
-Running them without updating will fail with a "file not found" error.
-
-### fix_database.py
-
-```python
-# שורה שצריך לעדכן / Line to update:
-excel_path = r'C:\Users\tal_ba\Documents\...\חוברת1.xlsx'
-
-# שנה ל-נתיב של קובץ ה-Excel שלך / Change to your own Excel file path:
-excel_path = r'C:\YOUR_PATH\your_file.xlsx'
-```
-
-> ⚠️ קובץ זה **מוחק את כל הנתונים** לפני הייבוא מחדש.
-> הרץ אותו רק בהגדרה ראשונית או כשברצונך לאפס את הדאטהבייס לחלוטין.
->
-> This file **deletes all existing data** before re-importing.
-> Only run it during initial setup or when you intentionally want to reset the database.
-
-### import_excel.py
-
-```python
-# שורה שצריך לעדכן / Line to update:
-excel_path = r'C:\Users\tal_ba\Documents\...\חוברת1.xlsx'
-
-# שנה ל-נתיב של קובץ ה-Excel שלך / Change to your own Excel file path:
-excel_path = r'C:\YOUR_PATH\your_file.xlsx'
-```
-
-> ✅ קובץ זה בטוח יותר — הוא מייבא נתונים מבלי למחוק את הקיים (מדלג על ID-ים כפולים).
->
-> This file is safer — it imports without deleting existing data (skips duplicate IDs).
-
----
-
-**כלל אצבע:** אם תראה שגיאת `FileNotFoundError` עם נתיב שמתחיל ב-`C:\Users\tal_ba\` —
-זה אחד משני הקבצים האלה. עדכן את `excel_path` בסוף הקובץ הרלוונטי ונסה שוב.
-
-**Rule of thumb:** If you see a `FileNotFoundError` with a path starting with `C:\Users\tal_ba\` —
-it's one of these two files. Update the `excel_path` at the bottom of the relevant file and try again.
-
 
 ## 📞 תמיכה / Support
 
-- בעיות טכניות: בדוק `backend/logs/app.log`
+- בעיות טכניות: בדוק פלט הקונסול של `Run_App.bat`
 - שאלות שימוש: פנה למנהל המערכת
 
 ---
@@ -747,6 +555,6 @@ it's one of these two files. Update the `excel_path` at the bottom of the releva
 
 ---
 
-**נוצר על ידי**: טל בן אריה  
-**תאריך יצירה**: פברואר 2026  
+**נוצר על ידי**: טל בן אריה
+**תאריך יצירה**: פברואר 2026
 **גרסה**: 1.0.0
