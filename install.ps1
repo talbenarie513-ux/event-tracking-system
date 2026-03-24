@@ -210,22 +210,9 @@ if ($ip) {
         }
     }
 
-    # ── עדכן אוטומטי את launcher.py ──────────────────────────
-    $launcherPath = "launcher.py"
-    if (Test-Path $launcherPath) {
-        $content    = Get-Content $launcherPath -Raw -Encoding UTF8
-        $newContent = $content -replace "http://192\.168\.1\.XXX:5000", "http://${ip}:5000"
-        $newContent = $newContent -replace "http://localhost:5000",      "http://${ip}:5000"
-        if ($newContent -ne $content) {
-            Set-Content $launcherPath $newContent -Encoding UTF8
-            Write-OK "launcher.py עודכן אוטומטית."
-        } else {
-            Write-OK "launcher.py כבר מכיל את ה-IP הנכון."
-        }
-    }
 } else {
     Write-Warn "לא הצלחתי לזהות IP אוטומטית."
-    Write-Warn "עדכן ידנית ב-app.js וב-launcher.py."
+    Write-Warn "עדכן ידנית ב-app.js."
 }
 
 # ============================================================
@@ -242,11 +229,8 @@ Write-Host @"
  1. הפעל את השרת:
     לחץ פעמיים על  Run_App.bat
 
- 2. בנה .exe ללקוחות:
-    לחץ פעמיים על  build_client.bat
-    (אחר כך שלח את תיקיית dist\EventManagementSystem\ לכל משתמש)
-
- כתובת גישה מהרשת:
+ 2. התחבר מכל מחשב ברשת:
+    פתח דפדפן והכנס את הכתובת:
     http://${ip}:5000
 
 "@ -ForegroundColor White

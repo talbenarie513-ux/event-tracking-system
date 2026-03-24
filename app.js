@@ -54,9 +54,7 @@ const CLOSED_STATUSES = ['הושלם הטיפול', 'טופל חלקית', 'בה
 /**
  * Wrapper around fetch() that appends a timestamp query param and sets
  * no-cache headers on every request.
- * This prevents the browser from returning stale cached responses,
- * which is especially important in a desktop webview (pywebview) where
- * the browser cache is very aggressive.
+ * This prevents the browser from returning stale cached responses.
  *
  * @param {string} url - The URL to fetch.
  * @param {object} options - Standard fetch() options object.
@@ -1797,21 +1795,6 @@ function displayEventFiles(files) {
 
 async function downloadFile(fileId) {
     try {
-        if (window.pywebview && window.pywebview.api) {
-            const headRes = await fetch(`${API_URL}/files/${fileId}/download`);
-            if (!headRes.ok) throw new Error('שגיאת שרת: ' + headRes.status);
-            const disposition = headRes.headers.get('Content-Disposition') || '';
-            const match       = disposition.match(/filename="?([^"]+)"?/);
-            const filename    = match ? match[1] : 'download';
-            const result = await window.pywebview.api.save_file(fileId, filename);
-            if (result && result.ok) {
-                alert(`הקובץ נשמר בהצלחה:\n${result.path}`);
-            } else if (result && result.error !== 'cancelled') {
-                alert('שגיאה בשמירת הקובץ: ' + result.error);
-            }
-            return;
-        }
-
         const response = await fetch(`${API_URL}/files/${fileId}/download`);
         if (!response.ok) throw new Error('שגיאת שרת: ' + response.status);
         const disposition2 = response.headers.get('Content-Disposition') || '';
@@ -2290,19 +2273,6 @@ async function generateReport() {
     try {
         const response = await fetch(`${API_URL}/reports/excel`);
         if (!response.ok) throw new Error('Report generation failed');
-
-        if (window.pywebview && window.pywebview.api) {
-            const now      = new Date();
-            const dateStr  = now.toISOString().split('T')[0];
-            const filename = `דוח_אירועים_${dateStr}.xlsx`;
-            const result   = await window.pywebview.api.save_report(filename);
-            if (result && result.ok) {
-                alert(`הדוח נשמר בהצלחה:\n${result.path}`);
-            } else if (result && result.error !== 'cancelled') {
-                alert('שגיאה בשמירת הדוח: ' + result.error);
-            }
-            return;
-        }
 
         const blob    = await response.blob();
         const blobUrl = URL.createObjectURL(blob);

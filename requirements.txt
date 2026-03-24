@@ -15,16 +15,13 @@ xlsxwriter==3.1.0      # creates formatted .xlsx Excel reports — used in repor
 xlrd==2.0.2            # reads old-format .xls files (Excel 97-2003) — used in app.py's _xls_to_html() preview function
 python-docx            # reads .docx Word files — used in app.py's _docx_to_html() preview function (no version pin — latest)
 
-# ── DESKTOP APP ──────────────────────────────────────────────
-pywebview==4.4.1       # creates a native desktop window that renders the web UI — called in main.py
-                       # without this the app would only run in a browser, not as a standalone window
+# ── UTILITIES ────────────────────────────────────────────────
 Werkzeug==2.3.0        # utility library used internally by Flask — also provides secure_filename() used in app.py
 
 # ── SCHEDULER ────────────────────────────────────────────────
 apscheduler==3.10.4    # background job scheduler — runs the daily overdue check and weekly report email
                        # configured in email_notifications.py → start_scheduler()
 
-requests>=2.31.0   # HTTP client used in main.py by DownloadAPI to fetch files from local Flask server
 # ── NOT LISTED BUT USED (built into Python — no install needed) ──
 # sqlite3      — database engine
 # smtplib      — email sending
@@ -32,5 +29,5 @@ requests>=2.31.0   # HTTP client used in main.py by DownloadAPI to fetch files f
 # datetime     — all date/time logic
 # base64       — encodes files for browser preview
 # mimetypes    — detects file type from extension
-# threading    — runs Flask in background while pywebview runs in main thread
+# threading    — no longer needed in main.py (Flask runs directly); kept here for reference
 # io.BytesIO   — in-memory file buffer (no disk writes needed for reports/email attachments)
