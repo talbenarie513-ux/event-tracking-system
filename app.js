@@ -1063,63 +1063,156 @@ async function showEventDetail(eventId) {
 
         document.getElementById('detailEventId').textContent = event.id;
 
-        // build the file attachments section if there are any
+        // ── helper: render a value or a styled "—" placeholder ──
+        const val = (v) => (v && String(v).trim()) ? v : '<span class="detail-value empty">—</span>';
+
+        // ── urgency badge ──
+        const urgencyClass =
+            event.urgency === 'קריטית' ? 'urgency-critical' :
+            event.urgency === 'גבוהה'  ? 'urgency-high'     :
+            event.urgency === 'בינונית' ? 'urgency-medium'   : 'urgency-low';
+        const urgencyBadge = event.urgency
+            ? `<span class="urgency-badge ${urgencyClass}">${event.urgency}</span>`
+            : '<span class="detail-value empty">—</span>';
+
+        // ── status pill ──
+        const statusPill = event.status
+            ? `<span class="detail-status-pill">${event.status}</span>`
+            : '<span class="detail-value empty">—</span>';
+
+        // ── build the file attachments section — show display_name, original_filename as tooltip ──
         let filesHtml = '';
         if (event.files && event.files.length > 0) {
-            const fileRows = event.files.map(file => `
+            const fileRows = event.files.map(file => {
+                const shownName = file.display_name || file.original_filename;
+                return `
                 <div class="file-item">
-                    <span>📄 ${file.original_filename}</span>
+                    <span title="${file.original_filename}">📄 ${shownName}</span>
                     <div style="display:flex;gap:6px;">
                         <button class="btn btn-primary btn-small" onclick="openFile(${file.id})">👁️ פתח</button>
                         <button class="btn btn-primary btn-small" onclick="downloadFile(${file.id})">⬇️ הורד</button>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
             filesHtml = `
             <div class="detail-section">
-                <h3>📎 קבצים מצורפים (${event.files.length})</h3>
-                ${fileRows}
+                <div class="detail-section-header">📎 קבצים מצורפים (${event.files.length})</div>
+                <div style="padding:12px 16px;background:#fff;">${fileRows}</div>
             </div>`;
         }
 
-        // inject all event fields into the detail content area
+        // ── inject all event fields into the detail content area ──
         const detailContent = document.getElementById('detailContent');
         detailContent.innerHTML = `
+
+            <!-- ── SECTION 1: Basic Details ── -->
             <div class="detail-section">
-                <h3>פרטים בסיסיים</h3>
-                <div class="detail-row"><div class="detail-label">תאריך רישום:</div><div class="detail-value">${formatDate(event.registration_date)}</div></div>
-                <div class="detail-row"><div class="detail-label">תאריך פנייה ראשונה:</div><div class="detail-value">${event.first_contact_date ? formatDate(event.first_contact_date) : '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">מערכת:</div><div class="detail-value">${event.system || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">לקוחות מושפעים:</div><div class="detail-value">${event.affected_customers || '-'}</div></div>
+                <div class="detail-section-header">📋 פרטים בסיסיים</div>
+                <div class="detail-grid">
+                    <div class="detail-cell">
+                        <div class="detail-label">תאריך רישום</div>
+                        <div class="detail-value">${val(formatDate(event.registration_date))}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">תאריך פנייה ראשונה</div>
+                        <div class="detail-value">${val(event.first_contact_date ? formatDate(event.first_contact_date) : '')}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">מערכת</div>
+                        <div class="detail-value">${val(event.system)}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">לקוחות מושפעים</div>
+                        <div class="detail-value">${val(event.affected_customers)}</div>
+                    </div>
+                </div>
             </div>
+
+            <!-- ── SECTION 2: Event Description ── -->
             <div class="detail-section">
-                <h3>תיאור האירוע</h3>
-                <div class="detail-row"><div class="detail-label">תמצית:</div><div class="detail-value">${event.event_summary || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">פירוט:</div><div class="detail-value">${event.event_details || '-'}</div></div>
+                <div class="detail-section-header">📝 תיאור האירוע</div>
+                <div class="detail-grid">
+                    <div class="detail-cell detail-cell-full">
+                        <div class="detail-label">תמצית</div>
+                        <div class="detail-value" style="font-weight:600;">${val(event.event_summary)}</div>
+                    </div>
+                    <div class="detail-cell detail-cell-full">
+                        <div class="detail-label">פירוט</div>
+                        <div class="detail-value" style="white-space:pre-wrap;">${val(event.event_details)}</div>
+                    </div>
+                </div>
             </div>
+
+            <!-- ── SECTION 3: Status & Treatment ── -->
             <div class="detail-section">
-                <h3>סטטוס וטיפול</h3>
-                <div class="detail-row"><div class="detail-label">דחיפות:</div><div class="detail-value"><span class="urgency-badge ${
-                    event.urgency === 'קריטית' ? 'urgency-critical' :
-                    event.urgency === 'גבוהה'  ? 'urgency-high' :
-                    event.urgency === 'בינונית' ? 'urgency-medium' : 'urgency-low'
-                }">${event.urgency || '-'}</span></div></div>
-                <div class="detail-row"><div class="detail-label">עדיפות:</div><div class="detail-value">${event.priority || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">סטטוס:</div><div class="detail-value">${event.status || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">פירוט סטטוס:</div><div class="detail-value">${event.status_details || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">סיווג:</div><div class="detail-value">${event.event_classification || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">לו"ז:</div><div class="detail-value">${formatDate(event.status_deadline)}</div></div>
-                ${event.completion_date ? `<div class="detail-row"><div class="detail-label">תאריך השלמה:</div><div class="detail-value">${formatDate(event.completion_date)}</div></div>` : ''}
-                <div class="detail-row"><div class="detail-label">גורם אחראי:</div><div class="detail-value">${event.responsible_person || '-'}</div></div>
+                <div class="detail-section-header">⚙️ סטטוס וטיפול</div>
+                <div class="detail-grid">
+                    <div class="detail-cell">
+                        <div class="detail-label">דחיפות</div>
+                        <div class="detail-value">${urgencyBadge}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">עדיפות</div>
+                        <div class="detail-value">${val(event.priority)}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">סטטוס</div>
+                        <div class="detail-value">${statusPill}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">סיווג אירוע</div>
+                        <div class="detail-value">${val(event.event_classification)}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">לו"ז</div>
+                        <div class="detail-value">${val(formatDate(event.status_deadline))}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">גורם אחראי</div>
+                        <div class="detail-value">${val(event.responsible_person)}</div>
+                    </div>
+                    ${event.completion_date ? `
+                    <div class="detail-cell">
+                        <div class="detail-label">תאריך השלמה</div>
+                        <div class="detail-value">${formatDate(event.completion_date)}</div>
+                    </div>
+                    <div class="detail-cell"></div>` : ''}
+                    ${event.status_details ? `
+                    <div class="detail-cell detail-cell-full">
+                        <div class="detail-label">פירוט סטטוס</div>
+                        <div class="detail-value" style="white-space:pre-wrap;">${event.status_details}</div>
+                    </div>` : ''}
+                </div>
             </div>
+
+            <!-- ── SECTION 4: Additional Info ── -->
             <div class="detail-section">
-                <h3>מידע נוסף</h3>
-                <div class="detail-row"><div class="detail-label">הצעת מחיר:</div><div class="detail-value">${event.price_quote ? event.price_quote + ' ₪' : '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">הערות:</div><div class="detail-value">${event.additional_notes || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">נוצר על ידי:</div><div class="detail-value">${event.created_by || '-'}</div></div>
-                <div class="detail-row"><div class="detail-label">תאריך יצירה:</div><div class="detail-value">${formatDateTime(event.created_at)}</div></div>
-                <div class="detail-row"><div class="detail-label">עודכן לאחרונה:</div><div class="detail-value">${formatDateTime(event.updated_at)}</div></div>
+                <div class="detail-section-header">💡 מידע נוסף</div>
+                <div class="detail-grid">
+                    <div class="detail-cell">
+                        <div class="detail-label">הצעת מחיר</div>
+                        <div class="detail-value">${event.price_quote ? event.price_quote + ' ₪' : '<span class="detail-value empty">—</span>'}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">נוצר על ידי</div>
+                        <div class="detail-value">${val(event.created_by)}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">תאריך יצירה</div>
+                        <div class="detail-value">${val(formatDateTime(event.created_at))}</div>
+                    </div>
+                    <div class="detail-cell">
+                        <div class="detail-label">עודכן לאחרונה</div>
+                        <div class="detail-value">${val(formatDateTime(event.updated_at))}</div>
+                    </div>
+                    ${event.additional_notes ? `
+                    <div class="detail-cell detail-cell-full">
+                        <div class="detail-label">הערות נוספות</div>
+                        <div class="detail-value" style="white-space:pre-wrap;">${event.additional_notes}</div>
+                    </div>` : ''}
+                </div>
             </div>
+
             ${filesHtml}
         `;
 
@@ -1633,6 +1726,10 @@ async function handleEventSubmit(e) {
     e.preventDefault();
     if (!currentUser) { alert('יש לבחור משתמש תחילה'); return; }
 
+    // ── block double-submit ──
+    const submitBtn = document.querySelector('#eventForm button[type="submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'שומר...'; }
+
     const eventId = document.getElementById('eventId').value;
     const isEdit  = eventId !== '';
 
@@ -1693,14 +1790,29 @@ async function handleEventSubmit(e) {
 
         const result = await response.json();
         if (result.success) {
-            alert(result.message);
-            closeEventModal();
-            loadEvents();
-            loadStats();
+            if (!isEdit && result.event_id) {
+                // ── NEW EVENT: write the server-assigned ID back into the hidden field ──
+                // This lets the user upload files immediately after saving without
+                // re-opening the event. The modal stays open after a new-event save.
+                document.getElementById('eventId').value = result.event_id;
+                document.getElementById('eventIdInput').value = result.event_id;
+                document.getElementById('modalTitle').textContent = `עריכת אירוע #${result.event_id}`;
+                alert(result.message);
+                loadEvents();
+                loadStats();
+            } else {
+                // ── EDIT: close the modal as usual ──
+                alert(result.message);
+                closeEventModal();
+                loadEvents();
+                loadStats();
+            }
         } else {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'שמור'; }
             alert('שגיאה: ' + result.error);
         }
     } catch (error) {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'שמור'; }
         console.error('Error saving event:', error);
         alert('שגיאה בשמירת האירוע: ' + error.message);
     }
@@ -1739,6 +1851,9 @@ async function deleteEvent(eventId) {
 function closeEventModal() {
     document.getElementById('eventModal').classList.remove('active');
     _hideIdToast();
+    // reset save button in case it was disabled during a previous submit
+    const submitBtn = document.querySelector('#eventForm button[type="submit"]');
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'שמור'; }
 }
 
 // ── FILE MANAGEMENT ───────────────────────────────────────────────────────────
@@ -1750,15 +1865,26 @@ async function uploadFiles() {
     if (fileInput.files.length === 0) { alert('לא נבחרו קבצים'); return; }
 
     for (let i = 0; i < fileInput.files.length; i++) {
+        const originalName = fileInput.files[i].name;
+
+        // ask the user what they want to call this file — prefill with the original name
+        const displayName = window.prompt(
+            `שם תצוגה לקובץ "${originalName}":\n(ניתן לשנות או להשאיר כפי שהוא)`,
+            originalName
+        );
+        // if the user pressed Cancel — skip this file
+        if (displayName === null) continue;
+
         const formData = new FormData();
         formData.append('file', fileInput.files[i]);
         formData.append('uploaded_by', currentUser || 'Unknown');
+        formData.append('display_name', displayName.trim() || originalName); // never save an empty name
         try {
             const response = await fetch(`${API_URL}/events/${eventId}/files`, { method: 'POST', body: formData });
             const result = await response.json();
-            if (!result.success) alert(`שגיאה בהעלאת ${fileInput.files[i].name}: ${result.error}`);
+            if (!result.success) alert(`שגיאה בהעלאת ${originalName}: ${result.error}`);
         } catch (error) {
-            alert(`שגיאה בהעלאת ${fileInput.files[i].name}`);
+            alert(`שגיאה בהעלאת ${originalName}`);
         }
     }
     const response = await fetchNoCache(`${API_URL}/events/${eventId}`);
@@ -1777,10 +1903,12 @@ function displayEventFiles(files) {
         return;
     }
     files.forEach(file => {
+        // show the user-supplied display_name; fall back to original_filename for old files
+        const shownName = file.display_name || file.original_filename;
         const fileItem = document.createElement('div');
         fileItem.className = 'file-item';
         fileItem.innerHTML = `
-            <span>📄 ${file.original_filename}</span>
+            <span title="${file.original_filename}">📄 ${shownName}</span>
             <div style="display:flex;gap:5px;">
                 <button type="button" class="btn btn-primary btn-small" onclick="openFile(${file.id})">👁️ פתח</button>
                 <button type="button" class="btn btn-primary btn-small" onclick="downloadFile(${file.id})">⬇️ הורד</button>
@@ -2269,24 +2397,91 @@ function showPermSaveBanner() {
 
 // ── EXCEL REPORT ──────────────────────────────────────────────────────────────
 
-async function generateReport() {
+// All possible event statuses — used to populate the report dropdown
+const ALL_STATUSES = [
+    'אירוע חדש', 'בטיפול', 'בהכנת הצעת מחיר', 'בפיתוח',
+    'בבדיקת איכות של פיתוח', 'ממתין לאישור הצעת מחיר',
+    'בבדיקת תחום תכנון', 'הושלם הטיפול', 'בהקפאה', 'טופל חלקית'
+];
+
+/**
+ * Generates and downloads an Excel report (all-time).
+ * @param {string} [status] - If provided, filters to events matching that status (all time).
+ *                            If empty/omitted, includes ALL events from all time.
+ * Note: the automated weekly email is sent by the server scheduler — completely separate.
+ */
+async function generateReport(status) {
     try {
-        const response = await fetch(`${API_URL}/reports/excel`);
+        const url = (status !== undefined && status !== '')
+            ? `${API_URL}/reports/excel?status=${encodeURIComponent(status)}`
+            : `${API_URL}/reports/excel`;
+
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Report generation failed');
 
         const blob    = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         const a       = document.createElement('a');
         a.href     = blobUrl;
-        a.download = `דוח_אירועים_${new Date().toISOString().split('T')[0]}.xlsx`;
+        const dateStr = new Date().toISOString().split('T')[0];
+        a.download = (status !== undefined && status !== '')
+            ? `דוח_אירועים_${status}_${dateStr}.xlsx`
+            : `דוח_אירועים_כל_הזמנים_${dateStr}.xlsx`;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 500);
+
+        // close the dropdown after download starts
+        const dd = document.getElementById('reportDropdown');
+        if (dd) dd.style.display = 'none';
+
     } catch (err) {
         console.error('Report error:', err);
         alert('שגיאה בהפקת הדוח');
     }
 }
+
+/**
+ * Toggles the report dropdown open/closed.
+ * Populated lazily on first open: "הכל (כל הזמנים)" at top, then one button per status.
+ */
+function toggleReportDropdown() {
+    const dd = document.getElementById('reportDropdown');
+    if (!dd) return;
+    const isVisible = dd.style.display === 'block';
+    dd.style.display = isVisible ? 'none' : 'block';
+
+    // populate only once — skip if already built
+    if (dd.children.length === 0) {
+        const allBtn = document.createElement('button');
+        allBtn.className        = 'report-dd-item';
+        allBtn.textContent      = '📋 הכל (כל הזמנים)';
+        allBtn.style.fontWeight = 'bold';
+        allBtn.onclick          = () => generateReport('');
+        dd.appendChild(allBtn);
+
+        const sep = document.createElement('hr');
+        sep.style.cssText = 'margin:4px 0;border:none;border-top:1px solid #e2e8f0;';
+        dd.appendChild(sep);
+
+        ALL_STATUSES.forEach(s => {
+            const btn = document.createElement('button');
+            btn.className   = 'report-dd-item';
+            btn.textContent = s;
+            btn.onclick     = () => generateReport(s);
+            dd.appendChild(btn);
+        });
+    }
+}
+
+// close the report dropdown when clicking anywhere outside the wrapper
+document.addEventListener('click', function(e) {
+    const wrapper = document.getElementById('reportBtnWrapper');
+    const dd      = document.getElementById('reportDropdown');
+    if (dd && wrapper && !wrapper.contains(e.target)) {
+        dd.style.display = 'none';
+    }
+});
 
 // ── ANALYSIS MODAL (CHARTS) ───────────────────────────────────────────────────
 

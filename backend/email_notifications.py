@@ -48,7 +48,7 @@ SMTP_CONFIG = {
     "port":       587,    # 587 = STARTTLS (most common), 465 = SSL, 25 = plain
     "use_tls":    True,   # True for port 587 (STARTTLS) — upgrades connection to encrypted after connecting
     "use_ssl":    False,  # True for port 465 (SSL) — encrypted from the start. Set use_tls=False if using this
-    "from_name":  "מערכת ניהול בעיות — גאודה",  # display name shown in the From field of the email
+    "from_name":  "מערכת ניהול בעיות — גאודע",  # display name shown in the From field of the email
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -160,7 +160,7 @@ def _html_wrap(title: str, body_html: str) -> str:
 <body>
 <div class="wrapper">
   <div class="header">
-    <h1>🛠️ מערכת מעקב ופיתוח — גאודה</h1>
+    <h1>🛠️ מערכת מעקב ופיתוח — גאודע</h1>
     <p>{title}</p>
   </div>
   <div class="content">{body_html}</div>
@@ -240,7 +240,9 @@ def _ev(event: dict, key: str, fallback: str = "—") -> str:
 
 def trigger_status_change(event: dict, old_status: str, changed_by: str):
     # fired from app.py whenever an event's status changes
-    # sends to all subscribers + directly to the responsible person if not already subscribed
+    # sends to all notify_status_change subscribers
+    # ALSO always sends directly to the responsible person (regardless of their own checkboxes)
+    # because any change to their event is their business
     recipients = _get_users_with_pref("notify_status_change")
 
     eid         = _ev(event, 'id')
@@ -252,7 +254,7 @@ def trigger_status_change(event: dict, old_status: str, changed_by: str):
     responsible = _ev(event, 'responsible_person')
     system      = _ev(event, 'system')
 
-    subject = f"[גאודה] עדכון סטטוס — אירוע #{eid} | {summary[:45]}"
+    subject = f"[גאודע] עדכון סטטוס — אירוע #{eid} | {summary[:45]}"
 
     body_html = f"""
     <h2>🔄 עדכון סטטוס אירוע</h2>
@@ -287,12 +289,108 @@ def trigger_status_change(event: dict, old_status: str, changed_by: str):
         send_email(user["email"], subject, html, text_body)
         already_sent.add(user["email"])
 
-    # also notify the responsible person directly even if they're not a subscriber
+    # ALWAYS also notify the responsible person directly —
+    # they must know about any change to their event regardless of their own checkbox settings
     resp_name = _ev(event, 'responsible_person', '')
-    if resp_name and resp_name != '—':
+    if resp_name and resp_name != '—' and resp_name != changed_by:
         resp_email = _get_user_email(resp_name)
         if resp_email and resp_email not in already_sent:
             send_email(resp_email, subject, html, text_body)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTIFICATION 1b — שינוי בפרטי אירוע (Any Field Change — to responsible person only)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def trigger_event_changed(event: dict, changed_fields: dict, changed_by: str):
+    """
+    Fired from app.py when any field on an event changes (other than status,
+    which has its own trigger). Sends ONLY to the responsible person of that event.
+
+    Logic:
+    - The responsible person always gets notified when their event is touched,
+      regardless of which checkboxes they have ticked.
+    - Other users with notify_responsible checked do NOT get this email —
+      they only get the assignment notification, not ongoing change notifications.
+    - If the person making the change IS the responsible person, no email is sent
+      (no point notifying someone of their own edits).
+    """
+    resp_name = _ev(event, 'responsible_person', '')
+    if not resp_name or resp_name == '—':
+        return  # no responsible person assigned — nothing to do
+    if resp_name == changed_by:
+        return  # the responsible person made the change themselves — skip
+
+    resp_email = _get_user_email(resp_name)
+    if not resp_email:
+        return  # no email found for this person
+
+    eid     = _ev(event, 'id')
+    summary = _ev(event, 'event_summary')
+    urgency = _ev(event, 'urgency')
+    status  = _ev(event, 'status')
+    system  = _ev(event, 'system')
+
+    # build a table of what actually changed
+    FIELD_LABELS_HE = {
+        'registration_date':    'תאריך רישום',
+        'first_contact_date':   'תאריך פנייה ראשונה',
+        'system':               'מערכת',
+        'event_summary':        'תמצית',
+        'event_details':        'פירוט',
+        'affected_customers':   'לקוחות מושפעים',
+        'urgency':              'דחיפות',
+        'priority':             'עדיפות',
+        'status':               'סטטוס',
+        'status_details':       'פירוט סטטוס',
+        'event_classification': 'סיווג',
+        'status_deadline':      'לו"ז',
+        'completion_date':      'תאריך השלמה',
+        'responsible_person':   'גורם אחראי',
+        'price_quote':          'הצעת מחיר',
+        'additional_notes':     'הערות',
+    }
+
+    changes_rows = ""
+    for field, (old_val, new_val) in changed_fields.items():
+        label = FIELD_LABELS_HE.get(field, field)
+        changes_rows += f"""
+        <tr>
+          <td><strong>{label}</strong></td>
+          <td style="color:#718096;">{old_val or '—'}</td>
+          <td style="color:#2d3748;font-weight:bold;">{new_val or '—'}</td>
+        </tr>"""
+
+    if not changes_rows:
+        return  # nothing meaningful changed
+
+    subject = f"[גאודע] עדכון אירוע #{eid} — {summary[:45]}"
+
+    body_html = f"""
+    <h2>✏️ עדכון בפרטי אירוע שבאחריותך</h2>
+    <p>שלום <strong>{resp_name}</strong>,<br>
+       בוצע עדכון באירוע <strong>#{eid} — {summary}</strong>
+       על ידי <strong>{changed_by}</strong>.</p>
+    <table class="ev">
+      <tr><th>שדה</th><th>ערך קודם</th><th>ערך חדש</th></tr>
+      {changes_rows}
+    </table>
+    <table class="ev" style="margin-top:12px;">
+      <tr><th>שדה</th><th>ערך</th></tr>
+      <tr><td><strong>מספר אירוע</strong></td><td>#{eid}</td></tr>
+      <tr><td><strong>מערכת</strong></td><td>{system}</td></tr>
+      <tr><td><strong>דחיפות</strong></td><td>{_urgency_badge(urgency)}</td></tr>
+      <tr><td><strong>סטטוס</strong></td><td>{status}</td></tr>
+      <tr><td><strong>תאריך עדכון</strong></td><td>{datetime.now().strftime('%d/%m/%Y %H:%M')}</td></tr>
+    </table>"""
+
+    text_body = (
+        f"עדכון בפרטי אירוע שבאחריותך: אירוע #{eid} — {summary} "
+        f"עודכן על ידי {changed_by}."
+    )
+
+    html = _html_wrap(f"עדכון אירוע #{eid}", body_html)
+    send_email(resp_email, subject, html, text_body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -318,7 +416,7 @@ def trigger_new_event(event: dict, created_by: str):
     responsible = _ev(event, 'responsible_person')
     reg_date    = _fmt_date(_ev(event, 'registration_date', ''))
 
-    subject = f"[גאודה] אירוע חדש #{eid} — {summary[:45]}"
+    subject = f"[גאודע] אירוע חדש #{eid} — {summary[:45]}"
 
     body_html = f"""
     <h2>🆕 יצירת אירוע חדש</h2>
@@ -357,8 +455,17 @@ def trigger_new_event(event: dict, created_by: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: str):
-    # fired from app.py when a responsible person is assigned or changed
-    # sends directly to the newly assigned person + all subscribers
+    """
+    Fired from app.py when a responsible person is assigned or changed.
+
+    Sending logic:
+    - The newly assigned person ALWAYS gets a personal email telling them they
+      were assigned — regardless of any checkbox settings.
+    - Users with notify_responsible checked get a notification about the assignment
+      ONLY — they do NOT get emails about subsequent changes to that event
+      (that is the exclusive job of trigger_event_changed / trigger_status_change
+       which go directly to the responsible person).
+    """
     new_responsible = _ev(event, 'responsible_person', '')
 
     # exit early if nothing actually changed or no responsible person set
@@ -375,16 +482,17 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
     deadline   = _fmt_date(_ev(event, 'status_deadline', ''))
     st_details = _ev(event, 'status_details')
 
-    subject = f"[גאודה] משתמש אחראי — אירוע #{eid} | {summary[:40]}"
+    subject = f"[גאודע] שויכת כגורם אחראי — אירוע #{eid} | {summary[:40]}"
 
-    def _build_html() -> str:
-        # inner function builds the HTML — called separately for each recipient to keep it clean
+    def _build_html_personal() -> str:
+        # personalised email for the assigned person — addresses them directly
         return _html_wrap(
-            f"משתמש אחראי — אירוע #{eid}",
+            f"שויכת כגורם אחראי — אירוע #{eid}",
             f"""
-            <h2>👤 משתמש אחראי</h2>
-            <p>לידיעתכם, לאירוע בנושא <strong>{summary}</strong>
-               הוזן משתמש אחראי בשם <strong>{new_responsible}</strong>.</p>
+            <h2>👤 שויכת כגורם אחראי לאירוע</h2>
+            <p>שלום <strong>{new_responsible}</strong>,<br>
+               שויכת כגורם אחראי לאירוע <strong>#{eid} — {summary}</strong>
+               על ידי <strong>{changed_by}</strong>.</p>
             <table class="ev">
               <tr><th>שדה</th><th>ערך</th></tr>
               <tr><td><strong>מספר אירוע</strong></td>    <td>#{eid}</td></tr>
@@ -396,7 +504,6 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
               <tr><td><strong>סטטוס</strong></td>            <td>{status}</td></tr>
               <tr><td><strong>פירוט סטטוס</strong></td>    <td>{st_details}</td></tr>
               <tr><td><strong>לו"ז לטיפול</strong></td>    <td><strong>{deadline}</strong></td></tr>
-              <tr><td><strong>גורם אחראי חדש</strong></td> <td><strong>{new_responsible}</strong></td></tr>
               {f'<tr><td><strong>אחראי קודם</strong></td><td>{old_responsible}</td></tr>' if old_responsible else ''}
             </table>
             <p style="color:#c05621;font-weight:bold;">
@@ -404,20 +511,42 @@ def trigger_responsible_assigned(event: dict, old_responsible: str, changed_by: 
             </p>"""
         )
 
+    def _build_html_general() -> str:
+        # generic notification for other subscribers — informs them of the assignment only
+        return _html_wrap(
+            f"משתמש אחראי — אירוע #{eid}",
+            f"""
+            <h2>👤 שינוי גורם אחראי</h2>
+            <p>לידיעתכם, לאירוע בנושא <strong>{summary}</strong>
+               שויך גורם אחראי בשם <strong>{new_responsible}</strong>.</p>
+            <table class="ev">
+              <tr><th>שדה</th><th>ערך</th></tr>
+              <tr><td><strong>מספר אירוע</strong></td>    <td>#{eid}</td></tr>
+              <tr><td><strong>נושא</strong></td>            <td>{summary}</td></tr>
+              <tr><td><strong>מערכת</strong></td>           <td>{system}</td></tr>
+              <tr><td><strong>דחיפות</strong></td>           <td>{_urgency_badge(urgency)}</td></tr>
+              <tr><td><strong>סטטוס</strong></td>            <td>{status}</td></tr>
+              <tr><td><strong>לו"ז לטיפול</strong></td>    <td><strong>{deadline}</strong></td></tr>
+              <tr><td><strong>גורם אחראי חדש</strong></td> <td><strong>{new_responsible}</strong></td></tr>
+              {f'<tr><td><strong>אחראי קודם</strong></td><td>{old_responsible}</td></tr>' if old_responsible else ''}
+            </table>"""
+        )
+
     text_body = (
-        f"משתמש אחראי: לידיעתכם, לאירוע בנושא {summary} "
-        f"הוזן משתמש אחראי בשם {new_responsible}."
+        f"שינוי גורם אחראי: לאירוע בנושא {summary} "
+        f"שויך גורם אחראי בשם {new_responsible}."
     )
 
-    # send directly to the newly assigned person first
+    # 1. Always send the personal email to the newly assigned person
     assigned_email = _get_user_email(new_responsible)
     if assigned_email:
-        send_email(assigned_email, subject, _build_html(), text_body)
+        send_email(assigned_email, subject, _build_html_personal(), text_body)
 
-    # then send to all subscribers — skip the assigned person if they're already a subscriber
+    # 2. Notify other users with notify_responsible checked — generic assignment email only
+    #    They will NOT receive ongoing change emails for this event
     for user in _get_users_with_pref("notify_responsible"):
         if user["email"] != assigned_email:
-            send_email(user["email"], subject, _build_html(), text_body)
+            send_email(user["email"], subject, _build_html_general(), text_body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -483,7 +612,7 @@ def send_overdue_notifications():
             continue  # skip if no email found for this person
 
         count = len(resp_events)
-        subj  = f"[גאודה] ⚠️ אירועים באיחור — {count} אירועים מחכים לטיפולך | {today.strftime('%d/%m/%Y')}"
+        subj  = f"[גאודע] ⚠️ אירועים באיחור — {count} אירועים מחכים לטיפולך | {today.strftime('%d/%m/%Y')}"
 
         rows_html   = ""
         plain_lines = []
@@ -531,7 +660,7 @@ def send_overdue_notifications():
     if not recipients:
         return
 
-    subject = f"[גאודה] ⚠️ חלף המועד — {len(overdue)} אירועים באיחור | {today.strftime('%d/%m/%Y')}"
+    subject = f"[גאודע] ⚠️ חלף המועד — {len(overdue)} אירועים באיחור | {today.strftime('%d/%m/%Y')}"
 
     rows_html   = ""
     plain_lines = []
@@ -672,7 +801,7 @@ def send_weekly_report():
     excel_filename = f"דוח_אירועים_שבועי_{now.strftime('%Y%m%d')}.xlsx"
 
     subject = (
-        f"[גאודה] 📊 דוח אירועים שבועי — {today.strftime('%d/%m/%Y')} | "
+        f"[גאודע] 📊 דוח אירועים שבועי — {today.strftime('%d/%m/%Y')} | "
         f"{active_count} אירועים פעילים"
     )
 

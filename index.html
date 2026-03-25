@@ -74,6 +74,14 @@
         .btn-danger:hover { background: #5568d3; }
         .btn-warning { background: #ed8936; color: white; }
         .btn-small { padding: 5px 10px; font-size: 12px; }
+        /* ── Report status-filter dropdown items ── */
+        .report-dd-item {
+            display: block; width: 100%; text-align: right;
+            padding: 8px 16px; background: none; border: none;
+            cursor: pointer; font-size: 13px; color: #2d3748;
+            white-space: nowrap;
+        }
+        .report-dd-item:hover { background: #ebf4ff; color: #4c51bf; }
 
         .btn-help {
             background: none; border: 2px solid #667eea; color: #667eea;
@@ -483,11 +491,66 @@
         .notifications-table input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
         .notifications-table input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.5; }
 
-        .detail-section { margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; }
-        .detail-section h3 { color: #667eea; margin-bottom: 10px; }
-        .detail-row { display: grid; grid-template-columns: 200px 1fr; gap: 10px; margin: 10px 0; }
-        .detail-label { font-weight: bold; color: #666; }
-        .detail-value { color: #333; }
+        /* ── Event Detail Modal ─────────────────────────────────────── */
+        .detail-section {
+            margin-bottom: 16px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        .detail-section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        /* 2-column grid of label+value pairs inside each section */
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            background: #fff;
+        }
+        /* single full-width cell — used for long text fields */
+        .detail-grid .detail-cell-full { grid-column: 1 / -1; }
+        .detail-cell {
+            padding: 10px 16px;
+            border-bottom: 1px solid #f0f4f8;
+            border-left: 1px solid #f0f4f8;
+        }
+        .detail-cell:nth-child(odd) { border-left: none; }
+        .detail-cell:last-child,
+        .detail-cell:nth-last-child(2):nth-child(odd) { border-bottom: none; }
+        .detail-cell-full { border-left: none !important; }
+        .detail-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 3px;
+        }
+        .detail-value {
+            color: #1a202c;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        .detail-value.empty { color: #a0aec0; font-style: italic; }
+        /* status pill inside detail */
+        .detail-status-pill {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #eef2ff;
+            color: #4c51bf;
+            border: 1px solid #c3cffa;
+        }
 
         /* flex-wrap:wrap so the "✔ מיספור אוטומטי" label drops below on very narrow screens
            instead of squeezing the input */
@@ -675,7 +738,8 @@
             .header { flex-direction: column; gap: 15px; }
             .toolbar { flex-direction: column; align-items: stretch; }
             .filters { flex-direction: column; }
-            .detail-row { grid-template-columns: 1fr; }
+            .detail-grid { grid-template-columns: 1fr; }
+            .detail-cell:nth-child(odd) { border-left: none; }
             .analysis-grid { grid-template-columns: 1fr; }
             .history-field-row { flex-direction: column; align-items: flex-start; }
             .bell-dropdown { width: 300px; left: auto; right: 0; }
@@ -758,7 +822,16 @@
             </div>
             <div>
                 <button class="btn btn-success hidden" id="newEventBtn" onclick="showNewEventForm()">➕ אירוע חדש</button>
-                <button class="btn btn-primary" onclick="generateReport()">📊 הפקת דוח</button>
+                <!-- Report dropdown: "הכל" = all events all time, or pick a status for filtered all-time report -->
+                <div id="reportBtnWrapper" style="position:relative;display:inline-block;">
+                    <button class="btn btn-primary" onclick="toggleReportDropdown()">📊 הפקת דוח ▾</button>
+                    <div id="reportDropdown" style="
+                        display:none; position:absolute; top:110%; right:0;
+                        background:#fff; border:1px solid #cbd5e0; border-radius:8px;
+                        box-shadow:0 4px 16px rgba(0,0,0,0.13); z-index:9999;
+                        min-width:240px; padding:6px 0;
+                    "></div>
+                </div>
             </div>
         </div>
 
@@ -820,8 +893,12 @@
         </div>
         <div class="help-section">
             <h3>🛠️ מהי המערכת?</h3>
-            <p>מערכת מעקב וניהול בעיות של תכנון ופיתוח — גאודה.<br>
-               המערכת מאפשרת רישום, מעקב וניהול של אירועים, תקלות ובקשות פיתוח.</p>
+            <p>מערכת מעקב וניהול בעיות של תכנון ופיתוח — גאודע.<br>
+               המערכת מאפשרת רישום, מעקב וניהול של אירועים, תקלות ובקשות פיתוח בין צוות התכנון לצוות הפיתוח.</p>
+        </div>
+        <div class="help-section">
+            <h3>🔑 כניסה למערכת</h3>
+            <p>בחר את שמך מהתפריט. הכניסה קובעת את ההרשאות שלך ואת השדות שתוכל לערוך.</p>
         </div>
         <div class="help-section">
             <h3>👥 תפקידים והרשאות</h3>
@@ -834,9 +911,70 @@
                     <tr><td>מחיקת אירוע</td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td><td><span class="perm-no">✖</span></td></tr>
                     <tr><td>ניהול משתמשים</td><td><span class="perm-yes">✔</span></td><td><span class="perm-no">✖</span></td><td><span class="perm-no">✖</span></td></tr>
                     <tr><td>הוספת הערות</td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td></tr>
+                    <tr><td>העלאת קבצים לאירוע</td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td></tr>
                     <tr><td>הפקת דוח Excel</td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td><td><span class="perm-yes">✔</span></td></tr>
                 </tbody>
             </table>
+            <p style="margin-top:10px;">שדות שממלא <strong>צוות פיתוח</strong>: סטטוס, פירוט סטטוס, סיווג האירוע, הצעת מחיר.</p>
+        </div>
+        <div class="help-section">
+            <h3>➕ יצירת אירוע חדש</h3>
+            <ul>
+                <li>לחץ על <strong>➕ אירוע חדש</strong> בסרגל הכלים (זמין לתכנון ואדמין בלבד).</li>
+                <li>ניתן להזין מספר אירוע ידני — אם לא, המערכת תקצה מספר אוטומטי.</li>
+                <li><strong>עדיפות:</strong> 1 = הכי דחוף, 10 = הכי פחות דחוף.</li>
+                <li>לאחר שמירת האירוע, ניתן להעלות קבצים מיד מבלי לפתוח מחדש.</li>
+                <li>בעת העלאת קובץ, תתבקש לתת לו שם תצוגה מותאם אישית.</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h3>🔍 צפייה ועריכת אירועים</h3>
+            <ul>
+                <li>לחץ על שורה בטבלה לפתיחת <strong>חלון פרטי האירוע</strong> — תצוגה מלאה עם שדות, קבצים והערות.</li>
+                <li>לחץ ✏️ <strong>ערוך אירוע</strong> בתחתית החלון כדי לעבור למצב עריכה.</li>
+                <li>שורות <strong>באדום</strong> = אירועים שעבר מועד הטיפול שלהם.</li>
+                <li>ניתן לסנן לפי עמודות (▼), לחפש בתיבת החיפוש, ולמיין לפי שדות שונים.</li>
+                <li>לחץ על כרטיסיות הסטטיסטיקה בראש הדף לסינון מהיר (פגי תוקף, קריטיים וכו').</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h3>📊 סטטוסי אירוע</h3>
+            <div class="status-list">
+                <span class="status-chip">אירוע חדש</span>
+                <span class="status-chip">בטיפול</span>
+                <span class="status-chip">בהכנת הצעת מחיר</span>
+                <span class="status-chip">ממתין לאישור הצעת מחיר</span>
+                <span class="status-chip">בפיתוח</span>
+                <span class="status-chip">בבדיקת איכות של פיתוח</span>
+                <span class="status-chip">בבדיקת תחום תכנון</span>
+                <span class="status-chip">טופל חלקית</span>
+                <span class="status-chip">הושלם הטיפול</span>
+                <span class="status-chip">בהקפאה</span>
+            </div>
+        </div>
+        <div class="help-section">
+            <h3>📎 קבצים מצורפים</h3>
+            <ul>
+                <li>ניתן לצרף קבצים לכל אירוע (PDF, Word, Excel, תמונות, ZIP ועוד).</li>
+                <li>בעת העלאה תתבקש לתת שם תצוגה לקובץ — הוא יוצג בממשק במקום שם הקובץ המקורי.</li>
+                <li>ניתן לפתוח קובץ לתצוגה מקדימה ישירות בדפדפן, או להורידו.</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h3>📊 הפקת דוח Excel</h3>
+            <ul>
+                <li>לחץ על <strong>📊 הפקת דוח ▾</strong> ובחר אפשרות מהתפריט הנפתח.</li>
+                <li><strong>הכל (כל הזמנים)</strong> — מייצא את כל האירועים ללא סינון תאריך.</li>
+                <li><strong>לפי סטטוס</strong> — מייצא רק אירועים התואמים לסטטוס שנבחר, מכל הזמנים.</li>
+                <li>הדוח השבועי נשלח אוטומטית בכל יום ראשון ב-08:00 למשתמשים שנרשמו לו.</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h3>📧 התראות אימייל</h3>
+            <ul>
+                <li>הגדרת התראות מתבצעת בלשונית <strong>התראות לאימייל</strong> בפאנל הניהול (אדמין בלבד).</li>
+                <li>ניתן לבחור לכל משתמש: שינוי סטטוס, יצירת אירוע חדש, שיוך כגורם אחראי, אירוע פגי תוקף, ודוח שבועי.</li>
+            </ul>
         </div>
         <div class="help-section">
             <h3>🔔 התראות פנימיות</h3>
@@ -845,6 +983,18 @@
         <div class="help-section">
             <h3>💬 הערות פנימיות</h3>
             <p>בכל חלון פרטי אירוע ניתן להוסיף הערות פנימיות עם חותמת זמן ושם הכותב. ניתן למחוק הערה רק על ידי הכותב עצמו או אדמין.</p>
+        </div>
+        <div class="help-section">
+            <h3>📜 היסטוריית שינויים</h3>
+            <p>לחץ על <strong>📜 היסטוריה</strong> בחלון פרטי האירוע לצפייה בציר זמן מלא של כל השינויים — מי שינה, מה שונה, ומתי.</p>
+        </div>
+        <div class="help-section">
+            <h3>⚙️ פאנל ניהול (אדמין בלבד)</h3>
+            <ul>
+                <li><strong>משתמשים</strong> — הוספה, עריכה ומחיקה של משתמשים.</li>
+                <li><strong>התראות לאימייל</strong> — הגדרת העדפות שליחת מייל לכל משתמש.</li>
+                <li><strong>הרשאות שדות</strong> — קביעה עבור כל תפקיד ומשתמש אילו שדות הוא יכול לערוך.</li>
+            </ul>
         </div>
         <div class="form-actions">
             <button class="btn btn-primary" onclick="closeHelpModal()">הבנתי, סגור</button>
@@ -931,9 +1081,11 @@
                     <!-- min/max enforced + blocks - and e keys to prevent negative/scientific notation -->
                     <input type="number" id="priority" min="1" max="10" step="1" value="5" required
                            onkeydown="return event.key !== '-' && event.key !== 'e' && event.key !== '+'">
+                    <small style="color:#a0aec0;font-size:11px;margin-top:3px;display:block;">1 = הכי דחוף &nbsp;|&nbsp; 10 = הכי פחות דחוף</small>
                 </div>
                 <div class="form-group">
                     <label for="status">סטטוס</label>
+                    <small style="color:#a0aec0;font-size:11px;margin-bottom:3px;display:block;">* שדה למילוי על ידי צוות פיתוח</small>
                     <select id="status" required>
                         <option value="אירוע חדש" selected>אירוע חדש</option>
                         <option value="בטיפול">בטיפול</option>
@@ -949,10 +1101,12 @@
                 </div>
                 <div class="form-group">
                     <label for="statusDetails">פירוט סטטוס</label>
+                    <small style="color:#a0aec0;font-size:11px;margin-bottom:3px;display:block;">* שדה למילוי על ידי צוות פיתוח</small>
                     <textarea id="statusDetails"></textarea>
                 </div>
                 <div class="form-group">
                     <label for="eventClassification">סיווג האירוע</label>
+                    <small style="color:#a0aec0;font-size:11px;margin-bottom:3px;display:block;">* שדה למילוי על ידי צוות פיתוח</small>
                     <select id="eventClassification">
                         <option value="">בחר...</option>
                         <option value="תקלה">תקלה</option>
@@ -979,6 +1133,7 @@
                 </div>
                 <div class="form-group">
                     <label for="priceQuote">הצעת מחיר (₪)</label>
+                    <small style="color:#a0aec0;font-size:11px;margin-bottom:3px;display:block;">* שדה למילוי על ידי צוות פיתוח</small>
                     <!-- min="0" prevents negative prices; blocks - and e keys -->
                     <input type="number" id="priceQuote" min="0" step="0.01"
                            onkeydown="return event.key !== '-' && event.key !== 'e' && event.key !== '+'">
@@ -1027,11 +1182,23 @@
             <div id="commentLoginMsg" style="font-size:13px;color:#a0aec0;display:none;">יש להתחבר כמשתמש כדי להוסיף הערה</div>
         </div>
 
-        <div class="form-actions">
-            <button type="button" class="btn btn-danger hidden" id="detailDeleteBtn" onclick="handleDetailDelete()">🗑️ מחק אירוע</button>
-            <button type="button" class="btn btn-primary hidden" id="detailEditBtn" onclick="handleDetailEdit()">✏️ ערוך אירוע</button>
-            <button type="button" class="btn btn-warning" id="detailHistoryBtn" onclick="showHistoryModal()">📜 היסטוריה</button>
-            <button type="button" class="btn" onclick="closeDetailModal()">סגור</button>
+        <div class="form-actions" style="margin-top:8px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+            <button type="button" class="btn btn-danger hidden" id="detailDeleteBtn" onclick="handleDetailDelete()"
+                    style="font-size:14px;font-weight:600;border-radius:10px;padding:10px 18px;">
+                🗑️ מחק אירוע
+            </button>
+            <button type="button" class="btn btn-primary hidden" id="detailEditBtn" onclick="handleDetailEdit()"
+                    style="font-size:14px;font-weight:600;border-radius:10px;padding:10px 18px;">
+                ✏️ ערוך אירוע
+            </button>
+            <button type="button" class="btn btn-warning" id="detailHistoryBtn" onclick="showHistoryModal()"
+                    style="font-size:14px;font-weight:600;border-radius:10px;padding:10px 18px;">
+                📜 היסטוריה
+            </button>
+            <button type="button" class="btn" onclick="closeDetailModal()"
+                    style="font-size:14px;font-weight:600;border-radius:10px;padding:10px 18px;background:#e2e8f0;color:#4a5568;">
+                סגור
+            </button>
         </div>
     </div>
 </div>
@@ -1061,7 +1228,6 @@
         </div>
         <div class="tabs">
             <button class="tab active" onclick="switchTab('users', event)">משתמשים</button>
-            <button class="tab" onclick="switchTab('emails', event)">רשימת תפוצה</button>
             <button class="tab" onclick="switchTab('notifications', event)">התראות לאימייל</button>
             <button class="tab" onclick="switchTab('permissions', event)">הרשאות שדות</button>
         </div>
@@ -1095,26 +1261,6 @@
                     <button type="submit" class="btn btn-success">הוסף משתמש</button>
                 </div>
             </form>
-        </div>
-
-        <!-- EMAILS TAB -->
-        <div class="tab-content" id="emailsTab">
-            <h3>רשימת תפוצה</h3>
-            <div id="emailsList"></div>
-            <h3 style="margin-top:30px;">הוסף אימייל ידנית</h3>
-            <div class="form-grid" style="margin-top:10px;">
-                <div class="form-group">
-                    <label>אימייל <span style="color:red;">*</span></label>
-                    <input type="email" id="newEmailAddress" placeholder="example@email.com">
-                </div>
-                <div class="form-group">
-                    <label>שם (אופציונלי)</label>
-                    <input type="text" id="newEmailName" placeholder="שם מלא">
-                </div>
-            </div>
-            <div class="form-actions" style="margin-top:10px;">
-                <button class="btn btn-success" onclick="addManualEmail()">➕ הוסף אימייל</button>
-            </div>
         </div>
 
         <!-- NOTIFICATIONS TAB -->

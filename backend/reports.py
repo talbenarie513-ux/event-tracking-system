@@ -4,13 +4,20 @@ from datetime import datetime, timedelta  # date calculations for the 7-day repo
 from database import Database             # our own db manager — used only by get_weekly_report_data()
 
 
-def generate_excel_report(events, filename=None, report_date=None):
+def generate_excel_report(events, filename=None, report_date=None, title=None, report_type='weekly'):
     """
     Takes a list of event dicts and returns a formatted Excel file as a BytesIO stream.
     Called from two places:
-      - app.py  → when user clicks the "generate report" button
-      - email_notifications.py → when the weekly report email is sent
+      - app.py  → when user clicks the "generate report" button (report_type='all' or status name)
+      - email_notifications.py → when the weekly report email is sent (report_type='weekly', default)
     ⚠️ filename parameter is accepted but never used — left over from an earlier version
+
+    Parameters:
+        events      — list of event dicts to include in the report
+        report_date — datetime for the report header; defaults to now
+        title       — custom title string for the title bar; auto-generated if None
+        report_type — 'weekly' | 'all' | <status string>
+                      Controls the title bar and the date-range row text.
     """
 
     if report_date is None:
@@ -145,18 +152,31 @@ def generate_excel_report(events, filename=None, report_date=None):
 
     # ── ROW 1 — TITLE BAR ────────────────────────────────────────────────────
     worksheet.set_row(0, 30)  # set row height to 30
+    # build the title string based on report_type if no custom title was given
+    if title:
+        bar_title = title
+    elif report_type == 'weekly':
+        bar_title = '📋  דוח אירועים שבועי — מערכת מעקב ופיתוח'
+    elif report_type == 'all':
+        bar_title = '📋  דוח אירועים — כל הזמנים — מערכת מעקב ופיתוח'
+    else:
+        # report_type is a status string (e.g. 'בטיפול')
+        bar_title = f'📋  דוח אירועים — {report_type} — מערכת מעקב ופיתוח'
     # merge_range merges all 16 columns into one wide title cell
-    worksheet.merge_range(0, 0, 0, len(col_widths) - 1,
-                          '📋  דוח אירועים שבועי — מערכת מעקב ופיתוח', title_fmt)
+    worksheet.merge_range(0, 0, 0, len(col_widths) - 1, bar_title, title_fmt)
 
     # ── ROW 2 — DATE INFO ────────────────────────────────────────────────────
     worksheet.set_row(1, 22)
-    seven_days_ago = report_date - timedelta(days=7)
     date_str = report_date.strftime('%d/%m/%Y  %H:%M')
-    range_str = (
-        f'תקופת הדוח:  {seven_days_ago.strftime("%d/%m/%Y")}'
-        f'  ←  {report_date.strftime("%d/%m/%Y")}'  # ← arrow shows the date range direction
-    )
+    # date range text differs by report type
+    if report_type == 'weekly':
+        seven_days_ago = report_date - timedelta(days=7)
+        range_str = (
+            f'תקופת הדוח:  {seven_days_ago.strftime("%d/%m/%Y")}'
+            f'  ←  {report_date.strftime("%d/%m/%Y")}'  # ← arrow shows the date range direction
+        )
+    else:
+        range_str = 'תקופת הדוח:  כל הזמנים'  # all-time report — no date range to show
     worksheet.write(1, 0, 'תאריך הפקת הדוח:', date_label_fmt)
     worksheet.write(1, 1, date_str, date_value_fmt)
     worksheet.merge_range(1, 2, 1, 7, range_str, range_fmt)   # columns 2-7 show the date range

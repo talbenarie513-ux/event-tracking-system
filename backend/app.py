@@ -20,6 +20,7 @@ from email_notifications import (
     trigger_new_event,
     trigger_status_change,
     trigger_responsible_assigned,
+    trigger_event_changed,
 )
 
 app = Flask(__name__)
@@ -844,9 +845,15 @@ def update_event(event_id):
             if updated_row:
                 updated_event = row_to_event(updated_row)
                 if new_status != old_status:
+                    # status change: notifies notify_status_change subscribers + responsible person
                     trigger_status_change(updated_event, old_status, updated_by)
+                elif changes:
+                    # non-status field changes: notify only the responsible person directly
+                    # (notify_responsible subscribers only get the assignment email, not ongoing changes)
+                    trigger_event_changed(updated_event, changes, updated_by)
                 new_responsible = data.get("responsible_person", "")
                 if new_responsible != (old_responsible or ""):
+                    # responsible person changed: notify the new person + notify_responsible subscribers
                     trigger_responsible_assigned(updated_event, old_responsible or "", updated_by)
         except Exception:
             pass  # notification failure must not fail the API response

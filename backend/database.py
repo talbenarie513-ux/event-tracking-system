@@ -81,12 +81,19 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id INTEGER NOT NULL,
                 original_filename TEXT NOT NULL,
+                display_name TEXT,                    -- user-supplied friendly name; falls back to original_filename if NULL
                 file_path TEXT NOT NULL,
                 uploaded_by TEXT,
                 uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             )
         ''')
+
+        # MIGRATION — add display_name to event_files if the column doesn't exist yet
+        cursor.execute("PRAGMA table_info(event_files)")
+        ef_cols = [col[1] for col in cursor.fetchall()]
+        if 'display_name' not in ef_cols:
+            cursor.execute("ALTER TABLE event_files ADD COLUMN display_name TEXT")
 
         # STATUS HISTORY TABLE
         cursor.execute('''
