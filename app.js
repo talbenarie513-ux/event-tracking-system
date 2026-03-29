@@ -1864,35 +1864,57 @@ async function uploadFiles() {
     const fileInput = document.getElementById('fileInput');
     if (fileInput.files.length === 0) { alert('לא נבחרו קבצים'); return; }
 
+    // ── Step 1: collect display names for all files BEFORE uploading ──
+    // All prompts happen synchronously up-front so uploads can then run in parallel.
+    const uploads = [];
     for (let i = 0; i < fileInput.files.length; i++) {
-        const originalName = fileInput.files[i].name;
-
-        // ask the user what they want to call this file — prefill with the original name
+        const file        = fileInput.files[i];
         const displayName = window.prompt(
-            `שם תצוגה לקובץ "${originalName}":\n(ניתן לשנות או להשאיר כפי שהוא)`,
-            originalName
+            `שם תצוגה לקובץ "${file.name}":\n(ניתן לשנות או להשאיר כפי שהוא)`,
+            file.name
         );
-        // if the user pressed Cancel — skip this file
-        if (displayName === null) continue;
-
-        const formData = new FormData();
-        formData.append('file', fileInput.files[i]);
-        formData.append('uploaded_by', currentUser || 'Unknown');
-        formData.append('display_name', displayName.trim() || originalName); // never save an empty name
-        try {
-            const response = await fetch(`${API_URL}/events/${eventId}/files`, { method: 'POST', body: formData });
-            const result = await response.json();
-            if (!result.success) alert(`שגיאה בהעלאת ${originalName}: ${result.error}`);
-        } catch (error) {
-            alert(`שגיאה בהעלאת ${originalName}`);
-        }
+        if (displayName === null) continue; // user pressed Cancel — skip this file
+        uploads.push({ file, displayName: displayName.trim() || file.name });
     }
-    const response = await fetchNoCache(`${API_URL}/events/${eventId}`);
-    const event    = await response.json();
-    displayEventFiles(event.files || []);
+    if (uploads.length === 0) return;
+
+    // ── Step 2: show inline progress indicator ──
+    const filesList    = document.getElementById('filesList');
+    const progressDiv  = document.createElement('div');
+    progressDiv.id     = 'uploadProgress';
+    progressDiv.style.cssText = 'padding:10px;color:#667eea;font-size:13px;';
+    progressDiv.textContent   = `⏳ מעלה ${uploads.length} קבצים...`;
+    filesList.prepend(progressDiv);
+
+    // ── Step 3: upload all files in parallel ──
+    const results = await Promise.allSettled(uploads.map(({ file, displayName }) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('uploaded_by', currentUser || 'Unknown');
+        formData.append('display_name', displayName);
+        return fetch(`${API_URL}/events/${eventId}/files`, { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || 'שגיאה לא ידועה');
+                return result;
+            });
+    }));
+
+    // ── Step 4: report any failures ──
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length > 0) {
+        alert(`שגיאה בהעלאת ${failed.length} קבצים:\n${failed.map(f => f.reason).join('\n')}`);
+    }
+
+    // ── Step 5: refresh file list and reset UI ──
+    const evRes  = await fetchNoCache(`${API_URL}/events/${eventId}`);
+    const evData = await evRes.json();
+    displayEventFiles(evData.files || []);
     fileInput.value = '';
     document.getElementById('fileNameDisplay').textContent = 'לא נבחרו קבצים';
-    alert('הקבצים הועלו בהצלחה');
+
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    if (successCount > 0) alert(`✅ ${successCount} קבצים הועלו בהצלחה`);
 }
 
 function displayEventFiles(files) {

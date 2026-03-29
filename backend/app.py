@@ -993,10 +993,11 @@ def upload_file(event_id):
     conn = db.get_connection()
     cursor = conn.cursor()
     try:
+        display_name = request.form.get('display_name', '').strip() or filename
         cursor.execute('''
-            INSERT INTO event_files (event_id, original_filename, file_path, uploaded_by)
-            VALUES (?, ?, ?, ?)
-        ''', (event_id, filename, rel_path, request.form.get('uploaded_by', 'Unknown')))
+            INSERT INTO event_files (event_id, original_filename, file_path, uploaded_by, display_name)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (event_id, filename, rel_path, request.form.get('uploaded_by', 'Unknown'), display_name))
         file_id     = cursor.lastrowid
         uploaded_by = request.form.get('uploaded_by', 'Unknown')
         # log file upload in audit_log using the 'file' field key with old='' and new=filename
@@ -1512,35 +1513,41 @@ def update_all_notifications(user_id):
 @app.route('/api/reports/excel', methods=['GET'])
 def generate_excel_report():
     """
-    Generates and streams an Excel report of events active in the last 7 days.
-    "Active in the last 7 days" means:
-      - registration_date within the last 7 days, OR
-      - updated_at within the last 7 days, OR
-      - completion_date within the last 7 days.
-    This ensures both newly created events AND recently closed events appear.
-    
-    The report is built by reports.py (xlsxwriter) and returned as a
-    streaming BytesIO without writing to disk.
+    Generates and streams an Excel report of ALL events (all time).
+    Optional ?status= query param filters to a specific status (all time).
+    The 7-day window was removed — on-demand reports always cover all time.
+    The automated weekly email uses a separate code path in email_notifications.py.
     """
     from reports import generate_excel_report as build_report
-    now            = datetime.now()
-    seven_days_ago = now - timedelta(days=7)
-    cutoff         = seven_days_ago.strftime('%Y-%m-%d')
-    conn = db.get_connection()
+    now    = datetime.now()
+    status = request.args.get('status', '').strip()
+
+    conn   = db.get_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM events
-        WHERE is_deleted = 0 AND id > 0
-          AND (registration_date >= ? OR DATE(updated_at) >= ? OR completion_date >= ?)
-        ORDER BY id ASC
-    ''', (cutoff, cutoff, cutoff))
+    if status:
+        cursor.execute('''
+            SELECT * FROM events
+            WHERE is_deleted = 0 AND id > 0 AND status = ?
+            ORDER BY id ASC
+        ''', (status,))
+        report_type = status
+    else:
+        cursor.execute('''
+            SELECT * FROM events
+            WHERE is_deleted = 0 AND id > 0
+            ORDER BY id ASC
+        ''')
+        report_type = 'all'
+
     events = [row_to_event(row) for row in cursor.fetchall()]
     conn.close()
-    file_stream = build_report(events, report_date=now)
+
+    file_stream = build_report(events, report_date=now, report_type=report_type)
+    safe_status = status.replace(' ', '_') if status else 'כל_הזמנים'
     return send_file(
         file_stream,
         as_attachment=True,
-        download_name=f'דוח_אירועים_שבועי_{now.strftime("%Y%m%d")}.xlsx',
+        download_name=f'דוח_אירועים_{safe_status}_{now.strftime("%Y%m%d")}.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
